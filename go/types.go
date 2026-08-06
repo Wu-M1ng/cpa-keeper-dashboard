@@ -16,7 +16,7 @@ const (
 	pluginID             = "usage-keeper"
 )
 
-var pluginVersion = "0.1.0"
+var pluginVersion = "1.0.0"
 
 type envelope struct {
 	OK     bool            `json:"ok"`
@@ -69,15 +69,15 @@ type managementRegistration struct {
 }
 
 type managementRoute struct {
-	Method      string `json:"Method"`
-	Path        string `json:"Path"`
-	Description string `json:"Description,omitempty"`
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+	Description string `json:"description,omitempty"`
 }
 
 type resourceRoute struct {
-	Path        string `json:"Path"`
-	Menu        string `json:"Menu,omitempty"`
-	Description string `json:"Description,omitempty"`
+	Path        string `json:"path"`
+	Menu        string `json:"menu,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 type managementRequest struct {
@@ -89,9 +89,9 @@ type managementRequest struct {
 }
 
 type managementResponse struct {
-	StatusCode int         `json:"StatusCode"`
-	Headers    http.Header `json:"Headers"`
-	Body       []byte      `json:"Body"`
+	StatusCode int         `json:"status_code"`
+	Headers    http.Header `json:"headers"`
+	Body       []byte      `json:"body"`
 }
 
 type usageRecord struct {

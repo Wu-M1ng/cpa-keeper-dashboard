@@ -129,7 +129,7 @@ func TestEnvelopeMarshalsResultOnce(t *testing.T) {
 	}
 }
 
-func TestManagementWireUsesOfficialFieldNames(t *testing.T) {
+func TestManagementWireMatchesWorkingPluginABI(t *testing.T) {
 	requestJSON := []byte(`{"method":"GET","path":"/v0/management/plugins/usage-keeper/summary","query":{"range":["24h"]},"body":""}`)
 	var request managementRequest
 	if err := json.Unmarshal(requestJSON, &request); err != nil {
@@ -151,11 +151,11 @@ func TestManagementWireUsesOfficialFieldNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	encoded := string(raw)
-	if !strings.Contains(encoded, `"StatusCode":200`) || !strings.Contains(encoded, `"Body":"eyJvayI6dHJ1ZX0="`) {
-		t.Fatalf("management response did not use ABI field names: %s", encoded)
+	if !strings.Contains(encoded, `"status_code":200`) || !strings.Contains(encoded, `"body":"eyJvayI6dHJ1ZX0="`) {
+		t.Fatalf("management response did not use working-plugin ABI fields: %s", encoded)
 	}
-	if strings.Contains(encoded, `"status_code"`) || strings.Contains(encoded, `"body"`) {
-		t.Fatalf("management response still uses non-ABI field names: %s", encoded)
+	if strings.Contains(encoded, `"StatusCode"`) || strings.Contains(encoded, `"Body"`) {
+		t.Fatalf("management response still contains legacy PascalCase fields: %s", encoded)
 	}
 
 	raw, err = handleMethod("management.register", nil)
@@ -165,7 +165,10 @@ func TestManagementWireUsesOfficialFieldNames(t *testing.T) {
 	if !strings.Contains(string(raw), `"routes"`) || !strings.Contains(string(raw), `"resources"`) {
 		t.Fatalf("management registration did not use official field names: %s", raw)
 	}
-	if !strings.Contains(string(raw), `"Path":"/dashboard"`) || !strings.Contains(string(raw), `"Menu":"用量 Keeper"`) {
-		t.Fatalf("management registration did not expose the CPA menu resource: %s", raw)
+	if !strings.Contains(string(raw), `"path":"/dashboard"`) || !strings.Contains(string(raw), `"menu":"用量 Keeper"`) {
+		t.Fatalf("management registration did not expose the menu using the working-plugin ABI: %s", raw)
+	}
+	if strings.Contains(string(raw), `"Path":"/dashboard"`) || strings.Contains(string(raw), `"Menu":"用量 Keeper"`) {
+		t.Fatalf("management registration still contains PascalCase resource fields: %s", raw)
 	}
 }
