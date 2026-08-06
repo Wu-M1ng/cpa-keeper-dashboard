@@ -222,10 +222,11 @@ func compactUsageRecord(record usageRecord, salt string) usageEvent {
 	}
 	provider := cleanDimension(record.Provider, "unknown")
 	model := cleanDimension(record.Model, "unknown")
-	source := anonymousSource(record.Source, salt)
 	upstreamMaterial := strings.Join([]string{provider, record.AuthID, record.AuthIndex, record.AuthType}, "\x00")
 	upstreamKey := shortHMAC(upstreamMaterial, salt)
-	upstreamLabel := provider + " / " + anonymousLabel("upstream", upstreamKey)
+	credential := preferredProviderCredential(record.AuthType, record.AuthID, record.AuthIndex)
+	upstreamLabel := providerCredentialLabel(provider, credential, upstreamKey)
+	source := upstreamLabel
 	apiHash := ""
 	apiMask := anonymousLabel("key", "")
 	if record.APIKey != "" {
@@ -280,14 +281,6 @@ func shortHMAC(value, salt string) string {
 	return hex.EncodeToString(mac.Sum(nil)[:8])
 }
 
-func anonymousSource(value, salt string) string {
-	value = cleanDimension(value, "unknown")
-	if value == "unknown" {
-		return value
-	}
-	return anonymousLabel("source", shortHMAC(value, salt))
-}
-
 func anonymousLabel(prefix, digest string) string {
 	digest = strings.TrimSpace(digest)
 	if digest == "" {
@@ -302,9 +295,6 @@ func anonymousLabel(prefix, digest string) string {
 func normalizeEventForStorage(event *usageEvent, salt string) {
 	event.Provider = cleanDimension(event.Provider, "unknown")
 	event.Model = cleanDimension(event.Model, "unknown")
-	if !isAnonymousLabel(event.Source, "source") {
-		event.Source = anonymousSource(event.Source, salt)
-	}
 	if event.APIKeyHash != "" && !isHexDigest(event.APIKeyHash, 16) {
 		event.APIKeyHash = shortHMAC(event.APIKeyHash, salt)
 	}
@@ -315,23 +305,66 @@ func normalizeEventForStorage(event *usageEvent, salt string) {
 		event.UpstreamKey = shortHMAC(event.UpstreamKey, salt)
 	}
 	event.APIKeyMask = anonymousLabel("key", event.APIKeyHash)
-	event.UpstreamLabel = event.Provider + " / " + anonymousLabel("upstream", event.UpstreamKey)
+	credential := preferredProviderCredential(event.AuthType, event.AuthID, event.AuthIndex)
+	event.UpstreamLabel = providerCredentialLabelFromStored(event.Provider, credential, event.UpstreamLabel, event.UpstreamKey)
+	event.Source = event.UpstreamLabel
 	event.AuthID = ""
 	event.AuthIndex = ""
 	event.AuthType = ""
 	event.Failure = sanitizeFailure(event.Failure)
 }
 
-func isAnonymousLabel(value, prefix string) bool {
+func preferredProviderCredential(authType, authID, authIndex string) string {
+	authType = strings.ToLower(strings.TrimSpace(authType))
+	if strings.Contains(authType, "api") || strings.Contains(authType, "key") {
+		return firstNonEmpty(authIndex, authID, authType)
+	}
+	return firstNonEmpty(authID, authIndex, authType)
+}
+
+func providerCredentialLabel(provider, credential, fallbackKey string) string {
+	credential = cleanProviderCredential(credential)
+	if credential == "" {
+		credential = fallbackKey
+	}
+	return cleanDimension(provider, "unknown") + " / " + maskProviderCredential(credential)
+}
+
+func providerCredentialLabelFromStored(provider, credential, storedLabel, fallbackKey string) string {
+	if credential == "" {
+		storedCredential := strings.TrimSpace(storedLabel)
+		if prefix := cleanDimension(provider, "unknown") + " / "; strings.HasPrefix(storedCredential, prefix) {
+			storedCredential = strings.TrimSpace(strings.TrimPrefix(storedCredential, prefix))
+		}
+		if strings.Contains(storedCredential, "***") {
+			return cleanDimension(provider, "unknown") + " / " + storedCredential
+		}
+		credential = storedCredential
+	}
+	return providerCredentialLabel(provider, credential, fallbackKey)
+}
+
+func cleanProviderCredential(value string) string {
 	value = strings.TrimSpace(value)
-	if value == prefix+"-unknown" {
-		return true
+	value = strings.TrimSuffix(value, ".json")
+	value = strings.TrimSuffix(value, ".yaml")
+	value = strings.TrimSuffix(value, ".yml")
+	return strings.TrimSpace(value)
+}
+
+func maskProviderCredential(value string) string {
+	value = cleanProviderCredential(value)
+	if value == "" {
+		return "unknown"
 	}
-	digest, found := strings.CutPrefix(value, prefix+"-")
-	if !found || len(digest) != 8 {
-		return false
+	runes := []rune(value)
+	if len(runes) >= 6 {
+		return string(runes[:3]) + "***" + string(runes[len(runes)-2:])
 	}
-	return isHexDigest(digest, 8)
+	if len(runes) >= 3 {
+		return string(runes[:1]) + "***" + string(runes[len(runes)-1:])
+	}
+	return string(runes[:1]) + "***"
 }
 
 func isHexDigest(value string, length int) bool {

@@ -328,7 +328,7 @@ func queryAnalysis(ctx context.Context, store *eventStore, query url.Values, now
 		case "api_keys":
 			anonymizeDimensionStats(stats, "key", false)
 		case "sources":
-			anonymizeDimensionStats(stats, "source", false)
+			maskProviderCredentialStats(stats, false)
 		}
 		result.Distributions[dimension.response] = stats
 		if dimension.response == "models" {
@@ -359,7 +359,7 @@ func queryInterfaces(ctx context.Context, store *eventStore, query url.Values, n
 		return interfacesResponse{}, err
 	}
 	anonymizeDimensionStats(apiKeys, "key", false)
-	anonymizeDimensionStats(upstreams, "upstream", true)
+	maskProviderCredentialStats(upstreams, true)
 	return interfacesResponse{Range: rng, APIKeys: apiKeys, Upstreams: upstreams, GeneratedAt: now.UTC().Format(time.RFC3339)}, nil
 }
 
@@ -383,7 +383,10 @@ func queryUpstreamDetail(ctx context.Context, store *eventStore, key string, que
 	for _, model := range models {
 		mergeDimension(&result.Summary, model)
 	}
-	result.Name = publicIdentifier("upstream", key)
+	var storedName string
+	_ = store.db.QueryRowContext(ctx, `SELECT MAX(upstream_label) FROM usage_minute_rollups
+		WHERE upstream_key = ? AND minute BETWEEN ? AND ?`, key, rng.FromMS/60000, rng.ToMS/60000).Scan(&storedName)
+	result.Name = maskedProviderCredentialDisplay(storedName, key)
 	result.Summary.Key, result.Summary.Name = key, result.Name
 	result.Summary.SuccessRate = ratio(result.Summary.Successes, result.Summary.Requests)
 	result.Summary.AvgLatencyMS = average(result.Summary.latencySum, result.Summary.Requests)
@@ -538,6 +541,30 @@ func anonymizeDimensionStats(stats []dimensionStat, prefix string, preserveKey b
 	}
 }
 
+func maskProviderCredentialStats(stats []dimensionStat, preserveKey bool) {
+	for i := range stats {
+		key := stats[i].Key
+		stats[i].Name = maskedProviderCredentialDisplay(stats[i].Name, key)
+		if !preserveKey {
+			stats[i].Key = publicIdentifier("source", key)
+		}
+	}
+}
+
+func maskedProviderCredentialDisplay(label, fallbackKey string) string {
+	label = strings.TrimSpace(strings.ReplaceAll(label, " · ", " / "))
+	parts := strings.Split(label, " / ")
+	if len(parts) >= 2 {
+		provider := cleanDimension(parts[0], "unknown")
+		credential := strings.TrimSpace(parts[len(parts)-1])
+		if strings.Contains(credential, "***") {
+			return provider + " / " + credential
+		}
+		return providerCredentialLabel(provider, credential, fallbackKey)
+	}
+	return providerCredentialLabel("unknown", label, fallbackKey)
+}
+
 func publicIdentifier(prefix, value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -552,9 +579,9 @@ func redactEventForManagement(event *usageEvent) {
 	event.AuthID = ""
 	event.AuthIndex = ""
 	event.AuthType = ""
-	event.UpstreamLabel = event.Provider + " / " + publicIdentifier("upstream", event.UpstreamKey)
+	event.UpstreamLabel = maskedProviderCredentialDisplay(event.UpstreamLabel, event.UpstreamKey)
 	event.UpstreamKey = ""
-	event.Source = publicIdentifier("source", event.Source)
+	event.Source = maskedProviderCredentialDisplay(event.Source, "")
 	event.Failure = sanitizeFailure(event.Failure)
 }
 

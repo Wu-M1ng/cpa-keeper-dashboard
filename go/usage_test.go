@@ -113,6 +113,24 @@ func TestCompactUsageRecordMapsOfficialFieldsAndRedactsSecrets(t *testing.T) {
 	if event.UpstreamKey == "" || event.UpstreamLabel == "" {
 		t.Fatalf("upstream identity missing: %+v", event)
 	}
+	if event.UpstreamLabel != "codex / acc***89" || event.Source != event.UpstreamLabel {
+		t.Fatalf("provider credential label = %q/%q, want first-three/last-two mask", event.UpstreamLabel, event.Source)
+	}
+}
+
+func TestMaskProviderCredentialKeepsFirstThreeAndLastTwoCharacters(t *testing.T) {
+	tests := map[string]string{
+		"5312415661d8a481":         "531***81",
+		"account@example.com":      "acc***om",
+		"sk-channel-secret-123456": "sk-***56",
+		"public":                   "pub***ic",
+		"0":                        "0***",
+	}
+	for input, want := range tests {
+		if got := maskProviderCredential(input); got != want {
+			t.Errorf("maskProviderCredential(%q) = %q, want %q", input, got, want)
+		}
+	}
 }
 
 func TestEnqueueDropsImmediatelyWhenQueueIsFull(t *testing.T) {

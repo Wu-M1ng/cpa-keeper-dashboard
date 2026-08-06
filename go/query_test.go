@@ -148,10 +148,13 @@ func TestManagementResponsesDoNotExposeStoredIdentifiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, sensitive := range []string{"c***ey", "o***ey", "api-hash", "other-api", "0***", "1***", "channel-account@example.com", "sk-channel-secret", `"source":"openai"`, `"source":"claude"`, `"auth_index":"0"`} {
+	for _, sensitive := range []string{"c***ey", "o***ey", "api-hash", "other-api", "channel-account@example.com", "sk-channel-secret-123456", `"source":"openai"`, `"source":"claude"`, `"auth_index":"0"`} {
 		if strings.Contains(string(raw), sensitive) {
 			t.Fatalf("management response exposed %q: %s", sensitive, raw)
 		}
+	}
+	if !strings.Contains(string(raw), "sk-***56") {
+		t.Fatalf("management response is missing the masked provider credential: %s", raw)
 	}
 	if len(page.Events) == 0 || page.Events[0].APIKeyMask == "" || page.Events[0].Source == "" {
 		t.Fatalf("anonymous event labels are missing: %+v", page.Events)
@@ -166,7 +169,7 @@ func TestEventCSVDoesNotExposeStoredIdentifiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, sensitive := range []string{"c***ey", "o***ey", "api-hash", "other-api", "0***", "1***", ",openai,", ",claude,"} {
+	for _, sensitive := range []string{"c***ey", "o***ey", "api-hash", "other-api", ",openai,", ",claude,"} {
 		if strings.Contains(string(csv), sensitive) {
 			t.Fatalf("CSV exposed %q: %s", sensitive, csv)
 		}
