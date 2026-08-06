@@ -3,6 +3,8 @@
 
   const API_ROOT = '/v0/management/plugins/usage-keeper';
   const AUTO_REFRESH_MS = 30_000;
+  const HEALTH_DAYS = 5;
+  const HEALTH_SLOTS_PER_DAY = 96;
   const COLORS = ['var(--blue)', 'var(--accent)', 'var(--orange)', 'var(--yellow)', 'var(--red)', '#7589b5'];
   const pageMeta = {
     overview: ['总览', '运行状态与用量脉搏'],
@@ -15,12 +17,14 @@
     theme: readTheme(),
     managementKey: readManagementKey(),
     loading: false,
+    pendingRequests: 0,
     lastRefreshAt: 0,
     cache: new Map(),
     eventPage: 1,
     eventPages: 0,
     eventFilters: {},
   };
+  let autoRefreshTimer = 0;
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -46,14 +50,43 @@
   }
 
   function startAutoRefresh() {
-    const refresh = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (!state.managementKey || state.loading || state.page === 'settings') return;
-      if (Date.now() - state.lastRefreshAt < AUTO_REFRESH_MS) return;
-      loadActivePage(true);
-    };
-    window.setInterval(refresh, AUTO_REFRESH_MS);
-    document.addEventListener('visibilitychange', refresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    scheduleAutoRefresh();
+  }
+
+  function handleVisibilityChange() {
+    if (document.visibilityState !== 'visible') {
+      cancelAutoRefresh();
+      return;
+    }
+    scheduleAutoRefresh();
+  }
+
+  function cancelAutoRefresh() {
+    if (!autoRefreshTimer) return;
+    window.clearTimeout(autoRefreshTimer);
+    autoRefreshTimer = 0;
+  }
+
+  function scheduleAutoRefresh(delayOverride) {
+    cancelAutoRefresh();
+    if (document.visibilityState !== 'visible') return;
+    if (!state.managementKey || state.page === 'settings') return;
+    const elapsed = state.lastRefreshAt ? Date.now() - state.lastRefreshAt : 0;
+    const delay = Number.isFinite(delayOverride)
+      ? delayOverride
+      : state.lastRefreshAt ? Math.max(0, AUTO_REFRESH_MS - elapsed) : AUTO_REFRESH_MS;
+    autoRefreshTimer = window.setTimeout(runAutoRefresh, delay);
+  }
+
+  async function runAutoRefresh() {
+    autoRefreshTimer = 0;
+    if (document.visibilityState !== 'visible' || !state.managementKey || state.page === 'settings') return;
+    if (state.loading || state.pendingRequests > 0) {
+      scheduleAutoRefresh(1_000);
+      return;
+    }
+    await loadActivePage(true);
   }
 
   function bindTheme() {
@@ -169,7 +202,6 @@
       if (state.page === 'interfaces') await loadInterfaces(force);
       if (state.page === 'settings') await loadSettings(force);
       updateConnection(true);
-      state.lastRefreshAt = Date.now();
     } catch (error) {
       if (error.name !== 'AuthRequired') {
         toast(error.message || '加载失败', true);
@@ -177,6 +209,8 @@
       }
     } finally {
       setLoading(false);
+      state.lastRefreshAt = Date.now();
+      scheduleAutoRefresh();
     }
   }
 
@@ -198,20 +232,25 @@
     headers.set('Authorization', `Bearer ${state.managementKey}`);
     if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
     const endpoint = path.startsWith('/') ? API_ROOT + path : API_ROOT + '/' + path;
-    const response = await fetch(endpoint, { ...options, headers });
-    if (response.status === 401) {
-      sessionStorage.removeItem('usage-keeper-management-key');
-      state.managementKey = '';
-      updateConnection(false);
-      showAuthDialog();
-      throw namedError('AuthRequired', 'Management Key 已失效');
+    state.pendingRequests += 1;
+    try {
+      const response = await fetch(endpoint, { ...options, headers });
+      if (response.status === 401) {
+        sessionStorage.removeItem('usage-keeper-management-key');
+        state.managementKey = '';
+        updateConnection(false);
+        showAuthDialog();
+        throw namedError('AuthRequired', 'Management Key 已失效');
+      }
+      const contentType = response.headers.get('content-type') || '';
+      const body = contentType.includes('json') ? await response.json() : await response.text();
+      if (!response.ok) {
+        throw new Error(body?.error?.message || body?.error || `请求失败 (${response.status})`);
+      }
+      return body;
+    } finally {
+      state.pendingRequests -= 1;
     }
-    const contentType = response.headers.get('content-type') || '';
-    const body = contentType.includes('json') ? await response.json() : await response.text();
-    if (!response.ok) {
-      throw new Error(body?.error?.message || body?.error || `请求失败 (${response.status})`);
-    }
-    return body;
   }
 
   async function download(path, filename) {
@@ -243,7 +282,7 @@
     ]);
     renderKPIs(summary.kpi || {});
     renderTrend(summary.trend || []);
-    renderHealth(summary.health || [], summary.kpi || {});
+    renderHealth(summary.health || []);
     renderRuntime(summary.runtime || {});
     renderAnalysis(analysis);
     renderEventOptions(analysis);
@@ -283,15 +322,45 @@
     host.innerHTML = `<svg class="trend-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="用量趋势">${grid}<path class="chart-request-line" d="${requestPath}"/><path class="chart-token-line" d="${tokenPath}"/>${labels}</svg>`;
   }
 
-  function renderHealth(points, kpi) {
+  function renderHealth(points) {
     const host = $('#health-grid');
-    $('#health-summary').textContent = formatPercent(kpi.success_rate);
-    if (!points.length) return empty(host, '暂无健康数据');
-    host.innerHTML = points.slice(-480).map((point) => {
-      const rate = point.success_rate || 0;
-      const level = point.requests === 0 ? 0 : rate >= .995 ? 5 : rate >= .98 ? 4 : rate >= .9 ? 3 : rate >= .7 ? 2 : 1;
-      return `<span class="health-cell level-${level}" title="${esc(formatDateTime(point.timestamp_ms))} · ${formatPercent(rate)} · ${formatInt(point.requests)} 次"></span>`;
+    const visible = points.slice(-(HEALTH_DAYS * HEALTH_SLOTS_PER_DAY));
+    const requests = visible.reduce((sum, point) => sum + Number(point.requests || 0), 0);
+    const failures = visible.reduce((sum, point) => sum + Number(point.failures || 0), 0);
+    const successes = Math.max(0, requests - failures);
+    $('#health-summary').textContent = requests ? formatPercent(successes / requests) : '--';
+    $('#health-success-count').textContent = formatInt(successes);
+    $('#health-failure-count').textContent = formatInt(failures);
+    if (!visible.length) return empty(host, '暂无健康数据');
+
+    host.innerHTML = Array.from({ length: HEALTH_DAYS }, (_, dayIndex) => {
+      const day = visible.slice(dayIndex * HEALTH_SLOTS_PER_DAY, (dayIndex + 1) * HEALTH_SLOTS_PER_DAY);
+      const label = day.length ? formatHealthDate(day[0].timestamp_ms) : '--';
+      const cells = day.map((point) => {
+        const pointRequests = Number(point.requests || 0);
+        const pointFailures = Number(point.failures || 0);
+        const pointSuccesses = Math.max(0, pointRequests - pointFailures);
+        const rate = pointRequests ? pointSuccesses / pointRequests : 0;
+        const level = healthLevel(pointSuccesses, pointFailures);
+        const title = pointRequests
+          ? `${formatHealthDateTime(point.timestamp_ms)} · 成功 ${formatInt(pointSuccesses)} · 失败 ${formatInt(pointFailures)} · ${formatPercent(rate)}`
+          : `${formatHealthDateTime(point.timestamp_ms)} · 无请求`;
+        return `<span class="health-cell level-${level}" title="${esc(title)}" aria-label="${esc(title)}"></span>`;
+      }).join('');
+      return `<div class="health-row"><span class="health-date">${esc(label)}</span><div class="health-cells">${cells}</div></div>`;
     }).join('');
+  }
+
+  function healthLevel(successes, failures) {
+    const total = successes + failures;
+    if (!total) return 0;
+    const rate = successes / total;
+    const greenThreshold = Math.min(.99, .9 + .045 * Math.max(0, Math.log10(total / 10)));
+    if (rate < .5) return 1;
+    if (rate < .65) return 2;
+    if (rate < .8) return 3;
+    if (rate < greenThreshold) return 4;
+    return 5;
   }
 
   function renderRuntime(runtime) {
@@ -445,8 +514,27 @@
     $('#page-label').textContent = data.pages ? `第 ${data.page} / ${data.pages} 页` : '第 0 页';
     $('#page-prev').disabled = data.page <= 1;
     $('#page-next').disabled = !data.pages || data.page >= data.pages;
-    if (!(data.events || []).length) return emptyRow(body, 6);
-    body.innerHTML = data.events.map((event) => `<tr><td><span class="cell-main">${esc(formatDateTime(event.timestamp_ms))}</span><span class="cell-sub">${esc(event.source)}</span></td><td><span class="cell-main">${esc(event.model)}</span><span class="cell-sub">${esc(event.upstream_label)}</span></td><td><span class="cell-main">${esc(event.api_key)}</span></td><td><span class="cell-main numeric">${formatCompact(event.total_tokens)}</span><span class="cell-sub">入 ${formatCompact(event.input_tokens)} · 出 ${formatCompact(event.output_tokens)}</span></td><td><span class="cell-main numeric">${formatDuration(event.latency_ms)}</span><span class="cell-sub">TTFT ${formatDuration(event.ttft_ms)}</span></td><td><span class="status-badge ${event.failed ? 'is-failure' : ''}">${event.failed ? `失败 ${event.status_code || ''}` : '成功'}</span>${event.failure ? `<span class="cell-sub" title="${esc(event.failure)}">${esc(event.failure)}</span>` : ''}</td></tr>`).join('');
+    if (!(data.events || []).length) return emptyRow(body, 10);
+    body.innerHTML = data.events.map((event) => {
+      const inputTokens = Math.max(0, Number(event.input_tokens || 0));
+      const cacheReadTokens = Math.max(0, Number(event.cache_read_tokens || event.cached_tokens || 0));
+      const cacheCreationTokens = Math.max(0, Number(event.cache_creation_tokens || 0));
+      const uncachedInputTokens = Math.max(0, inputTokens - cacheReadTokens - cacheCreationTokens);
+      const ttft = Number(event.ttft_ms || 0) > 0 ? formatDuration(event.ttft_ms) : '--';
+      const status = event.failed ? `失败${event.status_code ? ` ${event.status_code}` : ''}` : '成功';
+      return `<tr>
+        <td><span class="cell-main">${esc(formatDateTime(event.timestamp_ms))}</span></td>
+        <td><span class="cell-main" title="${esc(event.model)}">${esc(event.model)}</span><span class="cell-sub" title="${esc(event.upstream_label)}">${esc(event.upstream_label)}</span></td>
+        <td><span class="status-badge ${event.failed ? 'is-failure' : ''}">${status}</span>${event.failure ? `<span class="cell-sub" title="${esc(event.failure)}">${esc(event.failure)}</span>` : ''}</td>
+        <td class="numeric"><span class="cell-main">${formatDuration(event.latency_ms)}</span><span class="cell-sub">首字 ${ttft}</span></td>
+        <td class="numeric">${formatInt(uncachedInputTokens)}</td>
+        <td class="numeric">${formatInt(event.output_tokens)}</td>
+        <td class="numeric">${formatInt(event.reasoning_tokens)}</td>
+        <td class="numeric">${formatInt(cacheReadTokens)}</td>
+        <td class="numeric">${formatInt(cacheCreationTokens)}</td>
+        <td class="numeric"><strong>${formatInt(event.total_tokens)}</strong></td>
+      </tr>`;
+    }).join('');
   }
 
   async function loadSettings(force) {
@@ -626,6 +714,8 @@
   function formatDuration(value) { const ms = Number(value || 0); return ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`; }
   function formatBytes(value) { const bytes = Number(value || 0); if (bytes < 1024) return `${bytes} B`; if (bytes < 1048576) return `${(bytes/1024).toFixed(1)} KB`; return `${(bytes/1048576).toFixed(1)} MB`; }
   function formatDateTime(value) { return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(Number(value))); }
+  function formatHealthDate(value) { return new Intl.DateTimeFormat('zh-CN', { timeZone: 'UTC', month: 'numeric', day: 'numeric' }).format(new Date(Number(value))); }
+  function formatHealthDateTime(value) { return new Intl.DateTimeFormat('zh-CN', { timeZone: 'UTC', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(Number(value))); }
   function formatTime(value, range) { return new Intl.DateTimeFormat('zh-CN', range === '24h' ? { hour: '2-digit', minute: '2-digit' } : { month: '2-digit', day: '2-digit' }).format(new Date(Number(value))); }
   function namedError(name, message) { const error = new Error(message); error.name = name; return error; }
 })();

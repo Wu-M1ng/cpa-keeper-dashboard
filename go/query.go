@@ -230,9 +230,15 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 	appendDenseTrend(&result.Trend, trendByBucket, rng, rng.IntervalMinutes)
 	sort.Slice(result.Trend, func(i, j int) bool { return result.Trend[i].TimestampMS < result.Trend[j].TimestampMS })
 
-	durationMinutes := max64(1, (rng.ToMS-rng.FromMS)/60000)
-	healthInterval := max64(15, ((durationMinutes+479)/480+14)/15*15)
-	healthRows, err := queryAggregateRows(ctx, store, rng, healthInterval, "", nil)
+	const healthInterval int64 = 15
+	healthStart := now.UTC().Truncate(24 * time.Hour).Add(-4 * 24 * time.Hour)
+	healthRange := timeRange{
+		FromMS:          healthStart.UnixMilli(),
+		ToMS:            healthStart.Add(5 * 24 * time.Hour).Add(-time.Millisecond).UnixMilli(),
+		Label:           "5d",
+		IntervalMinutes: healthInterval,
+	}
+	healthRows, err := queryAggregateRows(ctx, store, healthRange, healthInterval, "", nil)
 	if err != nil {
 		return summaryResponse{}, err
 	}
@@ -246,7 +252,7 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 		point.Requests += row.Requests
 		point.Failures += row.Failures
 	}
-	appendDenseHealth(&result.Health, healthByBucket, rng, healthInterval)
+	appendDenseHealth(&result.Health, healthByBucket, healthRange, healthInterval)
 	sort.Slice(result.Health, func(i, j int) bool { return result.Health[i].TimestampMS < result.Health[j].TimestampMS })
 	return result, nil
 }
@@ -276,20 +282,9 @@ func appendDenseTrend(target *[]trendPoint, buckets map[int64]*trendPoint, rng t
 }
 
 func appendDenseHealth(target *[]healthPoint, buckets map[int64]*healthPoint, rng timeRange, interval int64) {
-	if len(buckets) == 0 {
-		return
-	}
 	start, end := rng.FromMS/60000, rng.ToMS/60000
 	start = (start / interval) * interval
 	end = (end / interval) * interval
-	if end-start > 600 || rng.Label == "all" {
-		keys := make([]int64, 0, len(buckets))
-		for key := range buckets {
-			keys = append(keys, key)
-		}
-		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-		start, end = keys[0], keys[len(keys)-1]
-	}
 	for bucket := start; bucket <= end; bucket += interval {
 		point := buckets[bucket]
 		if point == nil {
@@ -330,6 +325,7 @@ func queryAnalysis(ctx context.Context, store *eventStore, query url.Values, now
 			anonymizeDimensionStats(stats, "key", false)
 		case "sources":
 			maskProviderCredentialStats(stats, false)
+			stats = mergeDimensionStatsByName(stats, "source")
 		}
 		result.Distributions[dimension.response] = stats
 		if dimension.response == "models" {
@@ -554,6 +550,49 @@ func maskProviderCredentialStats(stats []dimensionStat, preserveKey bool) {
 			stats[i].Key = publicIdentifier("source", key)
 		}
 	}
+}
+
+func mergeDimensionStatsByName(stats []dimensionStat, keyPrefix string) []dimensionStat {
+	byName := make(map[string]*dimensionStat, len(stats))
+	for _, stat := range stats {
+		groupKey := stat.provider + "\x00" + stat.Name
+		current := byName[groupKey]
+		if current == nil {
+			copyOfStat := stat
+			copyOfStat.Key = publicIdentifier(keyPrefix, groupKey)
+			copyOfStat.modelSet = make(map[string]struct{}, len(stat.modelSet))
+			for model := range stat.modelSet {
+				copyOfStat.modelSet[model] = struct{}{}
+			}
+			byName[groupKey] = &copyOfStat
+			continue
+		}
+		current.Requests += stat.Requests
+		current.Successes += stat.Successes
+		current.Failures += stat.Failures
+		current.CostUSD += stat.CostUSD
+		current.latencySum += stat.latencySum
+		addTokens(&current.Tokens, stat.Tokens)
+		for model := range stat.modelSet {
+			current.modelSet[model] = struct{}{}
+		}
+	}
+
+	merged := make([]dimensionStat, 0, len(byName))
+	for _, stat := range byName {
+		stat.TotalTokens = stat.Tokens.Total
+		stat.SuccessRate = ratio(stat.Successes, stat.Requests)
+		stat.AvgLatencyMS = average(stat.latencySum, stat.Requests)
+		stat.Models = len(stat.modelSet)
+		merged = append(merged, *stat)
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		if merged[i].Requests == merged[j].Requests {
+			return merged[i].Name < merged[j].Name
+		}
+		return merged[i].Requests > merged[j].Requests
+	})
+	return merged
 }
 
 func maskedProviderCredentialDisplay(provider, label, fallbackKey string) string {

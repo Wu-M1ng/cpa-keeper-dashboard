@@ -50,8 +50,37 @@ func TestQuerySummaryUsesRollups(t *testing.T) {
 	if result.KPI.TotalTokens != 1930 || result.KPI.CostUSD <= 0 {
 		t.Fatalf("tokens/cost missing: %+v", result.KPI)
 	}
-	if len(result.Trend) == 0 || len(result.Health) == 0 {
+	if len(result.Trend) == 0 || len(result.Health) != 5*24*4 {
 		t.Fatalf("trend or health missing: %+v", result)
+	}
+	wantStart := now.UTC().Truncate(24 * time.Hour).Add(-4 * 24 * time.Hour).UnixMilli()
+	wantEnd := wantStart + int64((5*24*4-1)*15*time.Minute/time.Millisecond)
+	if result.Health[0].TimestampMS != wantStart || result.Health[len(result.Health)-1].TimestampMS != wantEnd {
+		t.Fatalf("health range = %d..%d, want %d..%d", result.Health[0].TimestampMS, result.Health[len(result.Health)-1].TimestampMS, wantStart, wantEnd)
+	}
+	var healthRequests int64
+	for _, point := range result.Health {
+		healthRequests += point.Requests
+	}
+	if healthRequests != 3 {
+		t.Fatalf("health requests = %d, want 3", healthRequests)
+	}
+}
+
+func TestQuerySummaryReturnsEmptyFiveDayHealthGrid(t *testing.T) {
+	store := openTestStore(t)
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	result, err := querySummary(context.Background(), store, url.Values{"range": {"24h"}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Health) != 5*24*4 {
+		t.Fatalf("empty health grid has %d points, want 480", len(result.Health))
+	}
+	for _, point := range result.Health {
+		if point.Requests != 0 || point.Failures != 0 || point.SuccessRate != 0 {
+			t.Fatalf("empty health point contains activity: %+v", point)
+		}
 	}
 }
 
@@ -71,6 +100,39 @@ func TestQueryAnalysisReturnsFourDistributionsAndModels(t *testing.T) {
 	}
 	if len(result.Models) != 2 || result.Tokens.Total != 1930 {
 		t.Fatalf("model/token analysis incomplete: %+v", result)
+	}
+}
+
+func TestQueryAnalysisMergesSourcesWithTheSameMaskedChannel(t *testing.T) {
+	store := openTestStore(t)
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	events := []usageEvent{
+		fixtureEvent(now.Add(-time.Hour), "gpt-5.6", false, 100, 20),
+		fixtureEvent(now.Add(-30*time.Minute), "gpt-5.6", false, 80, 10),
+	}
+	if err := store.writeBatch(events); err != nil {
+		t.Fatal(err)
+	}
+
+	firstMinute := events[0].TimestampMS / 60000
+	secondMinute := events[1].TimestampMS / 60000
+	if _, err := store.db.Exec(`UPDATE usage_minute_rollups SET source = CASE minute
+		WHEN ? THEN 'sk-channel-alpha-e0'
+		WHEN ? THEN 'sk-channel-bravo-e0'
+		ELSE source END`, firstMinute, secondMinute); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := queryAnalysis(context.Background(), store, url.Values{"range": {"24h"}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources := result.Distributions["sources"]
+	if len(sources) != 1 {
+		t.Fatalf("source distribution = %+v, want one merged channel", sources)
+	}
+	if sources[0].Name != "codex / sk-***e0" || sources[0].Requests != 2 {
+		t.Fatalf("merged source = %+v, want codex / sk-***e0 with 2 requests", sources[0])
 	}
 }
 

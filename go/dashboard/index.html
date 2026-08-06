@@ -60,7 +60,18 @@
           <div class="kpi-grid" id="overview-kpis"></div>
           <div class="overview-grid">
             <section class="panel trend-panel"><div class="panel-head"><div><h2>用量趋势</h2><p id="trend-caption">请求、Token 与费用</p></div><div class="legend"><span class="legend-request">请求</span><span class="legend-token">Token</span></div></div><div id="trend-chart" class="chart-host stable-chart"></div></section>
-            <section class="panel health-panel"><div class="panel-head"><div><h2>健康监测</h2><p>时间窗口成功率</p></div><span id="health-summary" class="health-score">--</span></div><div id="health-grid" class="health-grid"></div><div class="health-scale"><span>异常</span><i></i><i></i><i></i><i></i><span>健康</span></div></section>
+            <section class="panel health-panel">
+              <div class="panel-head health-panel-head">
+                <div><h2>服务健康监测</h2><p>最近5天，15分钟一个网格；绿色代表成功率高，红色代表失败较多。</p></div>
+                <div class="health-summary" aria-label="服务健康汇总">
+                  <span>成功率 <strong id="health-summary">--</strong></span>
+                  <span class="health-success">成功 <strong id="health-success-count">0</strong></span>
+                  <span class="health-failure">失败 <strong id="health-failure-count">0</strong></span>
+                </div>
+              </div>
+              <div id="health-grid" class="health-grid" aria-label="最近5天服务健康网格"></div>
+              <div class="health-scale"><span>异常</span><i class="level-1"></i><i class="level-2"></i><i class="level-3"></i><i class="level-4"></i><i class="level-5"></i><span>健康</span><em>灰色为无请求</em></div>
+            </section>
           </div>
           <div class="runtime-strip" id="runtime-strip"></div>
         </section>
@@ -86,7 +97,7 @@
             <button class="primary-button" type="submit">筛选</button>
             <button class="secondary-button" id="event-export" type="button"><svg><use href="#i-download"/></svg>导出</button>
           </form>
-          <section class="table-section event-table-section"><div class="section-head"><div><h2>请求明细</h2><p id="event-count">0 条记录</p></div></div><div class="table-wrap"><table class="event-table"><thead><tr><th>时间</th><th>模型 / 上游</th><th>客户端 Key</th><th>Token</th><th>延迟</th><th>状态</th></tr></thead><tbody id="event-table"></tbody></table></div><div class="pagination"><button id="page-prev" class="icon-button" title="上一页"><svg><use href="#i-chevron-left"/></svg></button><span id="page-label">第 1 页</span><button id="page-next" class="icon-button" title="下一页"><svg><use href="#i-chevron-right"/></svg></button></div></section>
+          <section class="table-section event-table-section"><div class="section-head"><div><h2>请求明细</h2><p id="event-count">0 条记录</p></div></div><div class="table-wrap"><table class="event-table"><thead><tr><th>时间</th><th>模型</th><th>状态</th><th>用时 / 首字</th><th>非缓存输入</th><th>输出</th><th>思考</th><th>缓存命中</th><th>缓存创建</th><th>总计</th></tr></thead><tbody id="event-table"></tbody></table></div><div class="pagination"><button id="page-prev" class="icon-button" title="上一页"><svg><use href="#i-chevron-left"/></svg></button><span id="page-label">第 1 页</span><button id="page-next" class="icon-button" title="下一页"><svg><use href="#i-chevron-right"/></svg></button></div></section>
         </section>
 
         <section class="page" data-page="settings">
