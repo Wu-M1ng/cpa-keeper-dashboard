@@ -16,12 +16,13 @@ import (
 )
 
 type eventStore struct {
-	db      *sql.DB
-	enabled bool
-	path    string
-	mu      sync.RWMutex
-	last    time.Time
-	lastErr string
+	db       *sql.DB
+	enabled  bool
+	path     string
+	hashSalt string
+	mu       sync.RWMutex
+	last     time.Time
+	lastErr  string
 }
 
 func openEventStore(cfg runtimeConfig) (*eventStore, error) {
@@ -39,7 +40,7 @@ func openEventStore(cfg runtimeConfig) (*eventStore, error) {
 	}
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(2)
-	store := &eventStore{db: db, enabled: cfg.StorageEnabled, path: path}
+	store := &eventStore{db: db, enabled: cfg.StorageEnabled, path: path, hashSalt: cfg.APIKeyHashSalt}
 	if err := store.initialize(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -174,6 +175,9 @@ ON CONFLICT(minute, provider, model, source, api_key_hash, upstream_key) DO UPDA
 func (s *eventStore) writeBatch(events []usageEvent) error {
 	if len(events) == 0 {
 		return nil
+	}
+	for i := range events {
+		normalizeEventForStorage(&events[i], s.hashSalt)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

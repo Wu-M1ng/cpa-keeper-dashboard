@@ -324,6 +324,12 @@ func queryAnalysis(ctx context.Context, store *eventStore, query url.Values, now
 		if err != nil {
 			return analysisResponse{}, err
 		}
+		switch dimension.response {
+		case "api_keys":
+			anonymizeDimensionStats(stats, "key", false)
+		case "sources":
+			anonymizeDimensionStats(stats, "source", false)
+		}
 		result.Distributions[dimension.response] = stats
 		if dimension.response == "models" {
 			result.Models = stats
@@ -352,6 +358,8 @@ func queryInterfaces(ctx context.Context, store *eventStore, query url.Values, n
 	if err != nil {
 		return interfacesResponse{}, err
 	}
+	anonymizeDimensionStats(apiKeys, "key", false)
+	anonymizeDimensionStats(upstreams, "upstream", true)
 	return interfacesResponse{Range: rng, APIKeys: apiKeys, Upstreams: upstreams, GeneratedAt: now.UTC().Format(time.RFC3339)}, nil
 }
 
@@ -375,11 +383,7 @@ func queryUpstreamDetail(ctx context.Context, store *eventStore, key string, que
 	for _, model := range models {
 		mergeDimension(&result.Summary, model)
 	}
-	_ = store.db.QueryRowContext(ctx, `SELECT MAX(upstream_label) FROM usage_minute_rollups
-		WHERE upstream_key = ? AND minute BETWEEN ? AND ?`, key, rng.FromMS/60000, rng.ToMS/60000).Scan(&result.Name)
-	if result.Name == "" {
-		result.Name = key
-	}
+	result.Name = publicIdentifier("upstream", key)
 	result.Summary.Key, result.Summary.Name = key, result.Name
 	result.Summary.SuccessRate = ratio(result.Summary.Successes, result.Summary.Requests)
 	result.Summary.AvgLatencyMS = average(result.Summary.latencySum, result.Summary.Requests)
@@ -511,6 +515,7 @@ func queryEvents(ctx context.Context, store *eventStore, filter eventFilter) (ev
 		if err != nil {
 			return eventsPage{}, err
 		}
+		redactEventForManagement(&event)
 		events = append(events, event)
 	}
 	pages := 0
@@ -518,6 +523,39 @@ func queryEvents(ctx context.Context, store *eventStore, filter eventFilter) (ev
 		pages = int((total + int64(filter.PageSize) - 1) / int64(filter.PageSize))
 	}
 	return eventsPage{Events: events, Total: total, Page: filter.Page, PageSize: filter.PageSize, Pages: pages, GeneratedAt: time.Now().UTC().Format(time.RFC3339)}, rows.Err()
+}
+
+const publicIdentifierSalt = "usage-keeper-public-label"
+
+func anonymizeDimensionStats(stats []dimensionStat, prefix string, preserveKey bool) {
+	for i := range stats {
+		key := stats[i].Key
+		label := publicIdentifier(prefix, key)
+		stats[i].Name = label
+		if !preserveKey {
+			stats[i].Key = label
+		}
+	}
+}
+
+func publicIdentifier(prefix, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return anonymousLabel(prefix, "")
+	}
+	return anonymousLabel(prefix, shortHMAC(value, publicIdentifierSalt))
+}
+
+func redactEventForManagement(event *usageEvent) {
+	event.APIKeyMask = publicIdentifier("key", event.APIKeyHash)
+	event.APIKeyHash = ""
+	event.AuthID = ""
+	event.AuthIndex = ""
+	event.AuthType = ""
+	event.UpstreamLabel = event.Provider + " / " + publicIdentifier("upstream", event.UpstreamKey)
+	event.UpstreamKey = ""
+	event.Source = publicIdentifier("source", event.Source)
+	event.Failure = sanitizeFailure(event.Failure)
 }
 
 type rowScanner interface{ Scan(...any) error }

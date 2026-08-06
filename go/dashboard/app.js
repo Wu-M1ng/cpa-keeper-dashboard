@@ -296,7 +296,7 @@
 
   function renderDistributions(distributions) {
     const definitions = [
-      ['models', '模型分布'], ['providers', '上游分布'], ['api_keys', 'API Key 分布'], ['sources', '来源分布'],
+      ['models', '模型分布'], ['providers', '上游分布'], ['api_keys', '客户端 Key 分组'], ['sources', '渠道来源分布'],
     ];
     $('#distribution-grid').innerHTML = definitions.map(([key, title]) => distributionCard(title, distributions[key] || [])).join('');
   }
@@ -345,19 +345,19 @@
   function renderInterfaceSummary(data) {
     const apiKeys = data.api_keys || [], upstreams = data.upstreams || [];
     const requests = upstreams.reduce((sum, item) => sum + (item.requests || 0), 0);
-    $('#interface-summary').innerHTML = metric('API Key', formatInt(apiKeys.length)) + metric('上游', formatInt(upstreams.length)) + metric('请求', formatInt(requests));
+    $('#interface-summary').innerHTML = metric('客户端 Key', formatInt(apiKeys.length)) + metric('上游', formatInt(upstreams.length)) + metric('请求', formatInt(requests));
   }
 
   function renderAPIKeys(items) {
     const body = $('#api-key-table');
     if (!items.length) return emptyRow(body, 6);
-    body.innerHTML = items.map((item) => `<tr><td><span class="cell-main">${esc(item.name || '未识别')}</span><span class="cell-sub">${esc(item.key)}</span></td><td class="numeric">${formatInt(item.models)}</td><td class="numeric">${formatInt(item.requests)}</td><td>${statusBadge(item.success_rate)}</td><td class="numeric">${formatCompact(item.total_tokens)}</td><td class="numeric">${formatMoney(item.cost_usd)}</td></tr>`).join('');
+    body.innerHTML = items.map((item) => `<tr><td><span class="cell-main">${esc(item.name || '未识别')}</span></td><td class="numeric">${formatInt(item.models)}</td><td class="numeric">${formatInt(item.requests)}</td><td>${statusBadge(item.success_rate)}</td><td class="numeric">${formatCompact(item.total_tokens)}</td><td class="numeric">${formatMoney(item.cost_usd)}</td></tr>`).join('');
   }
 
   function renderUpstreams(items) {
     const body = $('#upstream-table');
     if (!items.length) return emptyRow(body, 6);
-    body.innerHTML = items.map((item) => `<tr><td><button class="row-button" data-upstream="${esc(item.key)}">${esc(item.name)}</button><span class="cell-sub">${esc(item.key)}</span></td><td class="numeric">${formatInt(item.models)}</td><td class="numeric">${formatInt(item.requests)}</td><td>${statusBadge(item.success_rate)}</td><td class="numeric">${formatDuration(item.avg_latency_ms)}</td><td class="numeric">${formatCompact(item.total_tokens)}</td></tr>`).join('');
+    body.innerHTML = items.map((item) => `<tr><td><button class="row-button" data-upstream="${esc(item.key)}">${esc(item.name)}</button></td><td class="numeric">${formatInt(item.models)}</td><td class="numeric">${formatInt(item.requests)}</td><td>${statusBadge(item.success_rate)}</td><td class="numeric">${formatDuration(item.avg_latency_ms)}</td><td class="numeric">${formatCompact(item.total_tokens)}</td></tr>`).join('');
   }
 
   async function openUpstream(key) {
@@ -418,7 +418,7 @@
     $('#page-prev').disabled = data.page <= 1;
     $('#page-next').disabled = !data.pages || data.page >= data.pages;
     if (!(data.events || []).length) return emptyRow(body, 6);
-    body.innerHTML = data.events.map((event) => `<tr><td><span class="cell-main">${esc(formatDateTime(event.timestamp_ms))}</span><span class="cell-sub">${esc(event.source)}</span></td><td><span class="cell-main">${esc(event.model)}</span><span class="cell-sub">${esc(event.upstream_label)}</span></td><td><span class="cell-main">${esc(event.api_key)}</span><span class="cell-sub">${esc(event.api_key_hash)}</span></td><td><span class="cell-main numeric">${formatCompact(event.total_tokens)}</span><span class="cell-sub">入 ${formatCompact(event.input_tokens)} · 出 ${formatCompact(event.output_tokens)}</span></td><td><span class="cell-main numeric">${formatDuration(event.latency_ms)}</span><span class="cell-sub">TTFT ${formatDuration(event.ttft_ms)}</span></td><td><span class="status-badge ${event.failed ? 'is-failure' : ''}">${event.failed ? `失败 ${event.status_code || ''}` : '成功'}</span>${event.failure ? `<span class="cell-sub" title="${esc(event.failure)}">${esc(event.failure)}</span>` : ''}</td></tr>`).join('');
+    body.innerHTML = data.events.map((event) => `<tr><td><span class="cell-main">${esc(formatDateTime(event.timestamp_ms))}</span><span class="cell-sub">${esc(event.source)}</span></td><td><span class="cell-main">${esc(event.model)}</span><span class="cell-sub">${esc(event.upstream_label)}</span></td><td><span class="cell-main">${esc(event.api_key)}</span></td><td><span class="cell-main numeric">${formatCompact(event.total_tokens)}</span><span class="cell-sub">入 ${formatCompact(event.input_tokens)} · 出 ${formatCompact(event.output_tokens)}</span></td><td><span class="cell-main numeric">${formatDuration(event.latency_ms)}</span><span class="cell-sub">TTFT ${formatDuration(event.ttft_ms)}</span></td><td><span class="status-badge ${event.failed ? 'is-failure' : ''}">${event.failed ? `失败 ${event.status_code || ''}` : '成功'}</span>${event.failure ? `<span class="cell-sub" title="${esc(event.failure)}">${esc(event.failure)}</span>` : ''}</td></tr>`).join('');
   }
 
   async function loadSettings(force) {

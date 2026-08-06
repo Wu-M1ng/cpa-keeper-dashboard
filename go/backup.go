@@ -43,6 +43,7 @@ func exportBackup(ctx context.Context, store *eventStore, maxRecords int) (backu
 			truncated = true
 			break
 		}
+		normalizeEventForStorage(&event, store.hashSalt)
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
@@ -70,16 +71,7 @@ func importBackup(ctx context.Context, store *eventStore, payload backupPayload)
 		if event.TimestampMS <= 0 || strings.TrimSpace(event.Model) == "" || strings.TrimSpace(event.Provider) == "" {
 			return importResult{}, fmt.Errorf("event %d is invalid", i+1)
 		}
-		event.Failure = sanitizeFailure(event.Failure)
-		event.Model = cleanDimension(event.Model, "unknown")
-		event.Provider = cleanDimension(event.Provider, "unknown")
-		event.Source = cleanDimension(event.Source, "unknown")
-		if event.UpstreamKey == "" {
-			event.UpstreamKey = shortHMAC(strings.Join([]string{event.Provider, event.AuthID, event.AuthIndex, event.AuthType}, "\x00"), "restored")
-		}
-		if event.UpstreamLabel == "" {
-			event.UpstreamLabel = event.Provider + " / " + maskIdentifier(firstNonEmpty(event.AuthIndex, event.AuthID, "default"))
-		}
+		normalizeEventForStorage(event, store.hashSalt)
 	}
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -132,6 +124,7 @@ func exportEventsCSV(ctx context.Context, store *eventStore, filter eventFilter,
 		if err != nil {
 			return nil, err
 		}
+		redactEventForManagement(&event)
 		status := "success"
 		if event.Failed {
 			status = "failure"

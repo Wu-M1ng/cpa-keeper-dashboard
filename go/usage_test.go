@@ -79,7 +79,7 @@ func TestCompactUsageRecordMapsOfficialFieldsAndRedactsSecrets(t *testing.T) {
 		Failed:       true,
 		Failure: usageFailure{
 			StatusCode: 429,
-			Body:       "Bearer secret-token sk-live-123456789 rate limited",
+			Body:       "account@example.com api_key=plain-secret Authorization: Bearer secret-token sk-live-123456789 rate limited",
 		},
 		Detail: usageDetail{
 			InputTokens:         100,
@@ -100,7 +100,14 @@ func TestCompactUsageRecordMapsOfficialFieldsAndRedactsSecrets(t *testing.T) {
 	if event.APIKeyHash == "" || strings.Contains(event.APIKeyMask, "abcdefghijk") {
 		t.Fatalf("API key was not masked: %+v", event)
 	}
-	if strings.Contains(event.Failure, "secret-token") || strings.Contains(event.Failure, "sk-live") {
+	if event.AuthID != "" || event.AuthIndex != "" || event.AuthType != "" {
+		t.Fatalf("raw account identity entered the usage event: %+v", event)
+	}
+	if strings.Contains(event.UpstreamLabel, "123456789") || strings.Contains(event.Source, "openai") {
+		t.Fatalf("account or source identity was not anonymized: %+v", event)
+	}
+	if strings.Contains(event.Failure, "secret-token") || strings.Contains(event.Failure, "sk-live") ||
+		strings.Contains(event.Failure, "plain-secret") || strings.Contains(event.Failure, "account@example.com") {
 		t.Fatalf("failure leaked a secret: %q", event.Failure)
 	}
 	if event.UpstreamKey == "" || event.UpstreamLabel == "" {

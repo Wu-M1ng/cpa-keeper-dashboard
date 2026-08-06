@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,11 @@ import (
 var (
 	runtimeMu     sync.RWMutex
 	activeRuntime *pluginRuntime
+
+	sensitiveAssignmentPattern = regexp.MustCompile(`(?i)\b(api[_-]?key|authorization|token|secret|password)\b\s*[:=]\s*[^\s,;]+`)
+	bearerTokenPattern         = regexp.MustCompile(`(?i)\bbearer\s+[^\s,;]+`)
+	secretTokenPattern         = regexp.MustCompile(`(?i)\b(?:sk|rk|pk|sess|token)-[a-z0-9._-]{6,}\b`)
+	emailPattern               = regexp.MustCompile(`(?i)\b[a-z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+\b`)
 )
 
 type pluginRuntime struct {
@@ -216,16 +222,15 @@ func compactUsageRecord(record usageRecord, salt string) usageEvent {
 	}
 	provider := cleanDimension(record.Provider, "unknown")
 	model := cleanDimension(record.Model, "unknown")
-	source := cleanDimension(record.Source, "unknown")
-	authIdentity := firstNonEmpty(record.AuthIndex, record.AuthID, record.AuthType, "default")
+	source := anonymousSource(record.Source, salt)
 	upstreamMaterial := strings.Join([]string{provider, record.AuthID, record.AuthIndex, record.AuthType}, "\x00")
 	upstreamKey := shortHMAC(upstreamMaterial, salt)
-	upstreamLabel := provider + " / " + maskIdentifier(authIdentity)
+	upstreamLabel := provider + " / " + anonymousLabel("upstream", upstreamKey)
 	apiHash := ""
-	apiMask := "未识别"
+	apiMask := anonymousLabel("key", "")
 	if record.APIKey != "" {
 		apiHash = shortHMAC(record.APIKey, salt)
-		apiMask = maskIdentifier(record.APIKey)
+		apiMask = anonymousLabel("key", apiHash)
 	}
 	cacheRead := record.Detail.CacheReadTokens
 	if cacheRead == 0 {
@@ -236,16 +241,18 @@ func compactUsageRecord(record usageRecord, salt string) usageEvent {
 		total = record.Detail.InputTokens + record.Detail.OutputTokens
 	}
 	return usageEvent{
-		TimestampMS:         requestedAt.UnixMilli(),
-		Provider:            provider,
-		ExecutorType:        cleanDimension(record.ExecutorType, ""),
-		Model:               model,
-		Alias:               cleanDimension(record.Alias, ""),
-		APIKeyMask:          apiMask,
-		APIKeyHash:          apiHash,
-		AuthID:              cleanDimension(record.AuthID, ""),
-		AuthIndex:           cleanDimension(record.AuthIndex, ""),
-		AuthType:            cleanDimension(record.AuthType, ""),
+		TimestampMS:  requestedAt.UnixMilli(),
+		Provider:     provider,
+		ExecutorType: cleanDimension(record.ExecutorType, ""),
+		Model:        model,
+		Alias:        cleanDimension(record.Alias, ""),
+		APIKeyMask:   apiMask,
+		APIKeyHash:   apiHash,
+		// Raw account identifiers are only used above to derive the upstream key.
+		// They must never enter the queue, SQLite database, or management API.
+		AuthID:              "",
+		AuthIndex:           "",
+		AuthType:            "",
 		UpstreamKey:         upstreamKey,
 		UpstreamLabel:       upstreamLabel,
 		Source:              source,
@@ -273,6 +280,68 @@ func shortHMAC(value, salt string) string {
 	return hex.EncodeToString(mac.Sum(nil)[:8])
 }
 
+func anonymousSource(value, salt string) string {
+	value = cleanDimension(value, "unknown")
+	if value == "unknown" {
+		return value
+	}
+	return anonymousLabel("source", shortHMAC(value, salt))
+}
+
+func anonymousLabel(prefix, digest string) string {
+	digest = strings.TrimSpace(digest)
+	if digest == "" {
+		return prefix + "-unknown"
+	}
+	if len(digest) > 8 {
+		digest = digest[:8]
+	}
+	return prefix + "-" + digest
+}
+
+func normalizeEventForStorage(event *usageEvent, salt string) {
+	event.Provider = cleanDimension(event.Provider, "unknown")
+	event.Model = cleanDimension(event.Model, "unknown")
+	if !isAnonymousLabel(event.Source, "source") {
+		event.Source = anonymousSource(event.Source, salt)
+	}
+	if event.APIKeyHash != "" && !isHexDigest(event.APIKeyHash, 16) {
+		event.APIKeyHash = shortHMAC(event.APIKeyHash, salt)
+	}
+	if event.UpstreamKey == "" {
+		material := strings.Join([]string{event.Provider, event.AuthID, event.AuthIndex, event.AuthType}, "\x00")
+		event.UpstreamKey = shortHMAC(material, salt)
+	} else if !isHexDigest(event.UpstreamKey, 16) {
+		event.UpstreamKey = shortHMAC(event.UpstreamKey, salt)
+	}
+	event.APIKeyMask = anonymousLabel("key", event.APIKeyHash)
+	event.UpstreamLabel = event.Provider + " / " + anonymousLabel("upstream", event.UpstreamKey)
+	event.AuthID = ""
+	event.AuthIndex = ""
+	event.AuthType = ""
+	event.Failure = sanitizeFailure(event.Failure)
+}
+
+func isAnonymousLabel(value, prefix string) bool {
+	value = strings.TrimSpace(value)
+	if value == prefix+"-unknown" {
+		return true
+	}
+	digest, found := strings.CutPrefix(value, prefix+"-")
+	if !found || len(digest) != 8 {
+		return false
+	}
+	return isHexDigest(digest, 8)
+}
+
+func isHexDigest(value string, length int) bool {
+	if len(value) != length {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
 func cleanDimension(value, fallback string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -289,25 +358,21 @@ func cleanDimension(value, fallback string) string {
 	}, value)
 }
 
-func maskIdentifier(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "default"
-	}
-	if len(value) <= 4 {
-		return value[:1] + "***"
-	}
-	if len(value) <= 9 {
-		return value[:1] + "***" + value[len(value)-2:]
-	}
-	return value[:3] + "..." + value[len(value)-4:]
-}
-
 func sanitizeFailure(value string) string {
 	value = cleanDimension(value, "")
 	if len(value) > 512 {
 		value = value[:512]
 	}
+	value = bearerTokenPattern.ReplaceAllString(value, "Bearer [redacted]")
+	value = sensitiveAssignmentPattern.ReplaceAllStringFunc(value, func(match string) string {
+		separator := strings.IndexAny(match, ":=")
+		if separator < 0 {
+			return "[redacted]"
+		}
+		return strings.TrimSpace(match[:separator]) + "=[redacted]"
+	})
+	value = secretTokenPattern.ReplaceAllString(value, "[redacted]")
+	value = emailPattern.ReplaceAllString(value, "[redacted-account]")
 	words := strings.Fields(value)
 	for i := range words {
 		lower := strings.ToLower(words[i])

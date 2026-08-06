@@ -75,8 +75,8 @@
 
         <section class="page" data-page="interfaces">
           <div class="interface-summary" id="interface-summary"></div>
-          <section class="table-section"><div class="section-head"><div><h2>API Key</h2><p>客户端调用分组</p></div></div><div class="table-wrap"><table><thead><tr><th>API Key</th><th>模型</th><th>请求</th><th>成功率</th><th>Token</th><th>费用</th></tr></thead><tbody id="api-key-table"></tbody></table></div></section>
-          <section class="table-section"><div class="section-head"><div><h2>上游统计</h2><p>Provider 与凭证维度</p></div></div><div class="table-wrap"><table><thead><tr><th>上游</th><th>模型</th><th>请求</th><th>成功率</th><th>平均延迟</th><th>Token</th></tr></thead><tbody id="upstream-table"></tbody></table></div></section>
+          <section class="table-section"><div class="section-head"><div><h2>客户端 Key 分组</h2><p>匿名客户端调用分组</p></div></div><div class="table-wrap"><table><thead><tr><th>客户端 Key</th><th>模型</th><th>请求</th><th>成功率</th><th>Token</th><th>费用</th></tr></thead><tbody id="api-key-table"></tbody></table></div></section>
+          <section class="table-section"><div class="section-head"><div><h2>上游统计</h2><p>匿名 Provider 凭证分组</p></div></div><div class="table-wrap"><table><thead><tr><th>上游分组</th><th>模型</th><th>请求</th><th>成功率</th><th>平均延迟</th><th>Token</th></tr></thead><tbody id="upstream-table"></tbody></table></div></section>
         </section>
 
         <section class="page" data-page="events">
@@ -88,7 +88,7 @@
             <button class="primary-button" type="submit">筛选</button>
             <button class="secondary-button" id="event-export" type="button"><svg><use href="#i-download"/></svg>导出</button>
           </form>
-          <section class="table-section event-table-section"><div class="section-head"><div><h2>请求明细</h2><p id="event-count">0 条记录</p></div></div><div class="table-wrap"><table class="event-table"><thead><tr><th>时间</th><th>模型 / 上游</th><th>API Key</th><th>Token</th><th>延迟</th><th>状态</th></tr></thead><tbody id="event-table"></tbody></table></div><div class="pagination"><button id="page-prev" class="icon-button" title="上一页"><svg><use href="#i-chevron-left"/></svg></button><span id="page-label">第 1 页</span><button id="page-next" class="icon-button" title="下一页"><svg><use href="#i-chevron-right"/></svg></button></div></section>
+          <section class="table-section event-table-section"><div class="section-head"><div><h2>请求明细</h2><p id="event-count">0 条记录</p></div></div><div class="table-wrap"><table class="event-table"><thead><tr><th>时间</th><th>模型 / 上游</th><th>客户端 Key</th><th>Token</th><th>延迟</th><th>状态</th></tr></thead><tbody id="event-table"></tbody></table></div><div class="pagination"><button id="page-prev" class="icon-button" title="上一页"><svg><use href="#i-chevron-left"/></svg></button><span id="page-label">第 1 页</span><button id="page-next" class="icon-button" title="下一页"><svg><use href="#i-chevron-right"/></svg></button></div></section>
         </section>
 
         <section class="page" data-page="settings">

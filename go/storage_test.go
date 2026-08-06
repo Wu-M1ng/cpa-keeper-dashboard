@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -47,6 +48,34 @@ func TestStorageBatchWritesEventsAndMergesRollups(t *testing.T) {
 	status := store.status()
 	if status.JournalMode != "wal" || status.EventCount != 2 || status.RollupCount != 1 {
 		t.Fatalf("unexpected status: %+v", status)
+	}
+}
+
+func TestStorageDoesNotPersistRawClientIdentifiers(t *testing.T) {
+	store := openTestStore(t)
+	event := fixtureEvent(time.Now().UTC(), "gpt-5.6", false, 10, 5)
+	event.AuthID = "account@example.com"
+	event.AuthIndex = "account-index"
+	event.AuthType = "oauth"
+	event.APIKeyMask = "sk-...secret"
+	event.Source = "account@example.com"
+	event.UpstreamLabel = "codex / account@example.com"
+	if err := store.writeBatch([]usageEvent{event}); err != nil {
+		t.Fatal(err)
+	}
+	var apiLabel, authID, authIndex, authType, upstreamLabel, source string
+	err := store.db.QueryRow(`SELECT api_key_mask, auth_id, auth_index, auth_type, upstream_label, source
+		FROM usage_events LIMIT 1`).Scan(&apiLabel, &authID, &authIndex, &authType, &upstreamLabel, &source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authID != "" || authIndex != "" || authType != "" {
+		t.Fatalf("stored raw auth identity: id=%q index=%q type=%q", authID, authIndex, authType)
+	}
+	for name, value := range map[string]string{"api label": apiLabel, "upstream label": upstreamLabel, "source": source} {
+		if strings.Contains(value, "secret") || strings.Contains(value, "account") || strings.Contains(value, "example.com") {
+			t.Fatalf("stored %s exposed an identifier: %q", name, value)
+		}
 	}
 }
 

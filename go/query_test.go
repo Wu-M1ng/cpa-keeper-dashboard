@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -81,7 +83,7 @@ func TestQueryInterfacesAndUpstreamDetail(t *testing.T) {
 	if len(interfaces.APIKeys) != 2 || len(interfaces.Upstreams) != 2 {
 		t.Fatalf("unexpected interfaces: %+v", interfaces)
 	}
-	detail, err := queryUpstreamDetail(context.Background(), store, "upstream-hash", url.Values{"range": {"24h"}}, now)
+	detail, err := queryUpstreamDetail(context.Background(), store, interfaces.Upstreams[0].Key, url.Values{"range": {"24h"}}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,6 +107,69 @@ func TestQueryEventsFiltersAndPaginates(t *testing.T) {
 	}
 	if page.Total != 1 || len(page.Events) != 1 || page.Events[0].StatusCode != 429 {
 		t.Fatalf("unexpected events page: %+v", page)
+	}
+}
+
+func TestManagementResponsesDoNotExposeStoredIdentifiers(t *testing.T) {
+	store, now := seededQueryStore(t)
+	_, err := store.db.Exec(`UPDATE usage_events SET
+		auth_id = 'channel-account@example.com',
+		auth_index = 'sk-channel-secret-123456',
+		upstream_label = 'codex / sk-channel-secret-123456',
+		source = 'codex / apikey / sk-channel-secret-123456'
+		WHERE provider = 'codex'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.db.Exec(`UPDATE usage_minute_rollups SET
+		upstream_label = 'codex / sk-channel-secret-123456',
+		source = 'codex / apikey / sk-channel-secret-123456'
+		WHERE provider = 'codex'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	analysis, err := queryAnalysis(context.Background(), store, url.Values{"range": {"24h"}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interfaces, err := queryInterfaces(context.Background(), store, url.Values{"range": {"24h"}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := queryEvents(context.Background(), store, eventFilter{
+		FromMS: now.Add(-24 * time.Hour).UnixMilli(), ToMS: now.UnixMilli(), Page: 1, PageSize: 25,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := json.Marshal([]any{analysis, interfaces, page})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sensitive := range []string{"c***ey", "o***ey", "api-hash", "other-api", "0***", "1***", "channel-account@example.com", "sk-channel-secret", `"source":"openai"`, `"source":"claude"`, `"auth_index":"0"`} {
+		if strings.Contains(string(raw), sensitive) {
+			t.Fatalf("management response exposed %q: %s", sensitive, raw)
+		}
+	}
+	if len(page.Events) == 0 || page.Events[0].APIKeyMask == "" || page.Events[0].Source == "" {
+		t.Fatalf("anonymous event labels are missing: %+v", page.Events)
+	}
+}
+
+func TestEventCSVDoesNotExposeStoredIdentifiers(t *testing.T) {
+	store, now := seededQueryStore(t)
+	csv, err := exportEventsCSV(context.Background(), store, eventFilter{
+		FromMS: now.Add(-24 * time.Hour).UnixMilli(), ToMS: now.UnixMilli(),
+	}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sensitive := range []string{"c***ey", "o***ey", "api-hash", "other-api", "0***", "1***", ",openai,", ",claude,"} {
+		if strings.Contains(string(csv), sensitive) {
+			t.Fatalf("CSV exposed %q: %s", sensitive, csv)
+		}
 	}
 }
 
