@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "plugins": [
+    {
+      "id": "usage-keeper",
+      "name": "用量 Keeper",
+      "description": "CLIProxyAPI 的低负载用量、健康、事件与价格看板插件。",
+      "author": "local",
+      "version": "0.1.0",
+      "repository": "https://github.com/Wu-M1ng/cpa-keeper-dashboard",
+      "logo": "",
+      "homepage": "",
+      "license": "MIT",
+      "tags": ["usage", "analytics", "dashboard"]
+    }
+  ]
+}

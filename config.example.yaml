@@ -1,0 +1,16 @@
+plugins:
+  enabled: true
+  dir: "plugins"
+  configs:
+    usage-keeper:
+      enabled: true
+      priority: 10
+      storage_enabled: true
+      storage_path: "data/usage-keeper.db"
+      queue_size: 2048
+      batch_size: 64
+      flush_interval_ms: 250
+      retention_days: 30
+      export_max_records: 50000
+      # 可选：更换 API Key 分组 HMAC 盐。修改后旧分组不会与新分组相混。
+      api_key_hash_salt: "change-this-salt"

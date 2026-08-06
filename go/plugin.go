@@ -1,0 +1,343 @@
+package main
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unicode"
+)
+
+var (
+	runtimeMu     sync.RWMutex
+	activeRuntime *pluginRuntime
+)
+
+type pluginRuntime struct {
+	configMu sync.RWMutex
+	config   runtimeConfig
+	store    *eventStore
+	queue    chan usageEvent
+	started  time.Time
+
+	queueMu sync.RWMutex
+	closed  bool
+	done    chan struct{}
+
+	accepted      atomic.Uint64
+	dropped       atomic.Uint64
+	written       atomic.Uint64
+	writeFailures atomic.Uint64
+	lastBatchSize atomic.Int64
+	lastBatchNS   atomic.Int64
+}
+
+func configureRuntime(cfg runtimeConfig) error {
+	next, err := newPluginRuntime(cfg)
+	if err != nil {
+		return err
+	}
+	runtimeMu.Lock()
+	previous := activeRuntime
+	activeRuntime = next
+	runtimeMu.Unlock()
+	if previous != nil {
+		previous.close()
+	}
+	return nil
+}
+
+func newPluginRuntime(cfg runtimeConfig) (*pluginRuntime, error) {
+	store, err := openEventStore(cfg)
+	if err != nil {
+		return nil, err
+	}
+	cfg.RetentionDays = store.loadIntSetting("retention_days", cfg.RetentionDays)
+	cfg.ExportMax = store.loadIntSetting("export_max_records", cfg.ExportMax)
+	r := &pluginRuntime{
+		config:  cfg,
+		store:   store,
+		queue:   make(chan usageEvent, cfg.QueueSize),
+		started: time.Now().UTC(),
+		done:    make(chan struct{}),
+	}
+	go r.runWriter()
+	return r, nil
+}
+
+func currentRuntime() *pluginRuntime {
+	runtimeMu.RLock()
+	r := activeRuntime
+	runtimeMu.RUnlock()
+	return r
+}
+
+func shutdownRuntime() {
+	runtimeMu.Lock()
+	r := activeRuntime
+	activeRuntime = nil
+	runtimeMu.Unlock()
+	if r != nil {
+		r.close()
+	}
+}
+
+func handleUsage(raw []byte) []byte {
+	var record usageRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		// Usage observation is fail-open: malformed telemetry must not affect CPA.
+		if r := currentRuntime(); r != nil {
+			r.dropped.Add(1)
+		}
+		return okEnvelope(struct{}{})
+	}
+	if r := currentRuntime(); r != nil {
+		r.enqueue(record)
+	}
+	return okEnvelope(struct{}{})
+}
+
+func (r *pluginRuntime) enqueue(record usageRecord) bool {
+	r.configMu.RLock()
+	salt := r.config.APIKeyHashSalt
+	r.configMu.RUnlock()
+	event := compactUsageRecord(record, salt)
+
+	r.queueMu.RLock()
+	defer r.queueMu.RUnlock()
+	if r.closed {
+		r.dropped.Add(1)
+		return false
+	}
+	select {
+	case r.queue <- event:
+		r.accepted.Add(1)
+		return true
+	default:
+		r.dropped.Add(1)
+		return false
+	}
+}
+
+func (r *pluginRuntime) runWriter() {
+	defer close(r.done)
+	r.configMu.RLock()
+	batchSize := r.config.BatchSize
+	flushEvery := r.config.flushInterval()
+	retentionDays := r.config.RetentionDays
+	r.configMu.RUnlock()
+
+	ticker := time.NewTicker(flushEvery)
+	defer ticker.Stop()
+	retentionTicker := time.NewTicker(24 * time.Hour)
+	defer retentionTicker.Stop()
+	_ = r.store.prune(retentionDays, time.Now().UTC())
+
+	batch := make([]usageEvent, 0, batchSize)
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		started := time.Now()
+		count := len(batch)
+		if err := r.store.writeBatch(batch); err != nil {
+			r.writeFailures.Add(1)
+		} else {
+			r.written.Add(uint64(count))
+		}
+		r.lastBatchSize.Store(int64(count))
+		r.lastBatchNS.Store(time.Since(started).Nanoseconds())
+		batch = batch[:0]
+	}
+
+	for {
+		select {
+		case event, ok := <-r.queue:
+			if !ok {
+				flush()
+				return
+			}
+			batch = append(batch, event)
+			if len(batch) >= batchSize {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
+		case now := <-retentionTicker.C:
+			flush()
+			_ = r.store.prune(retentionDays, now.UTC())
+		}
+	}
+}
+
+func (r *pluginRuntime) close() {
+	r.queueMu.Lock()
+	if r.closed {
+		r.queueMu.Unlock()
+		return
+	}
+	r.closed = true
+	close(r.queue)
+	r.queueMu.Unlock()
+	<-r.done
+	_ = r.store.close()
+}
+
+func (r *pluginRuntime) status() runtimeStatus {
+	r.configMu.RLock()
+	cfg := r.config
+	r.configMu.RUnlock()
+	return runtimeStatus{
+		Accepted:      r.accepted.Load(),
+		Dropped:       r.dropped.Load(),
+		Written:       r.written.Load(),
+		WriteFailures: r.writeFailures.Load(),
+		QueueDepth:    len(r.queue),
+		QueueCapacity: cap(r.queue),
+		LastBatchSize: r.lastBatchSize.Load(),
+		LastBatchMS:   float64(r.lastBatchNS.Load()) / float64(time.Millisecond),
+		StartedAt:     r.started.Format(time.RFC3339),
+		Storage:       r.store.status(),
+		RetentionDays: cfg.RetentionDays,
+		BatchSize:     cfg.BatchSize,
+		FlushInterval: cfg.FlushIntervalMS,
+	}
+}
+
+func compactUsageRecord(record usageRecord, salt string) usageEvent {
+	requestedAt := record.RequestedAt.UTC()
+	if requestedAt.IsZero() {
+		requestedAt = time.Now().UTC()
+	}
+	provider := cleanDimension(record.Provider, "unknown")
+	model := cleanDimension(record.Model, "unknown")
+	source := cleanDimension(record.Source, "unknown")
+	authIdentity := firstNonEmpty(record.AuthIndex, record.AuthID, record.AuthType, "default")
+	upstreamMaterial := strings.Join([]string{provider, record.AuthID, record.AuthIndex, record.AuthType}, "\x00")
+	upstreamKey := shortHMAC(upstreamMaterial, salt)
+	upstreamLabel := provider + " / " + maskIdentifier(authIdentity)
+	apiHash := ""
+	apiMask := "未识别"
+	if record.APIKey != "" {
+		apiHash = shortHMAC(record.APIKey, salt)
+		apiMask = maskIdentifier(record.APIKey)
+	}
+	cacheRead := record.Detail.CacheReadTokens
+	if cacheRead == 0 {
+		cacheRead = record.Detail.CachedTokens
+	}
+	total := record.Detail.TotalTokens
+	if total == 0 {
+		total = record.Detail.InputTokens + record.Detail.OutputTokens
+	}
+	return usageEvent{
+		TimestampMS:         requestedAt.UnixMilli(),
+		Provider:            provider,
+		ExecutorType:        cleanDimension(record.ExecutorType, ""),
+		Model:               model,
+		Alias:               cleanDimension(record.Alias, ""),
+		APIKeyMask:          apiMask,
+		APIKeyHash:          apiHash,
+		AuthID:              cleanDimension(record.AuthID, ""),
+		AuthIndex:           cleanDimension(record.AuthIndex, ""),
+		AuthType:            cleanDimension(record.AuthType, ""),
+		UpstreamKey:         upstreamKey,
+		UpstreamLabel:       upstreamLabel,
+		Source:              source,
+		ReasoningEffort:     cleanDimension(record.ReasoningEffort, ""),
+		ServiceTier:         cleanDimension(record.ServiceTier, ""),
+		Generate:            record.Generate || record.Stream,
+		LatencyMS:           max64(0, record.Latency.Milliseconds()),
+		TTFTMS:              max64(0, record.TTFT.Milliseconds()),
+		Failed:              record.Failed,
+		StatusCode:          record.Failure.StatusCode,
+		Failure:             sanitizeFailure(record.Failure.Body),
+		InputTokens:         max64(0, record.Detail.InputTokens),
+		OutputTokens:        max64(0, record.Detail.OutputTokens),
+		ReasoningTokens:     max64(0, record.Detail.ReasoningTokens),
+		CachedTokens:        max64(0, record.Detail.CachedTokens),
+		CacheReadTokens:     max64(0, cacheRead),
+		CacheCreationTokens: max64(0, record.Detail.CacheCreationTokens),
+		TotalTokens:         max64(0, total),
+	}
+}
+
+func shortHMAC(value, salt string) string {
+	mac := hmac.New(sha256.New, []byte(salt))
+	_, _ = mac.Write([]byte(value))
+	return hex.EncodeToString(mac.Sum(nil)[:8])
+}
+
+func cleanDimension(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	if len(value) > 160 {
+		value = value[:160]
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, value)
+}
+
+func maskIdentifier(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "default"
+	}
+	if len(value) <= 4 {
+		return value[:1] + "***"
+	}
+	if len(value) <= 9 {
+		return value[:1] + "***" + value[len(value)-2:]
+	}
+	return value[:3] + "..." + value[len(value)-4:]
+}
+
+func sanitizeFailure(value string) string {
+	value = cleanDimension(value, "")
+	if len(value) > 512 {
+		value = value[:512]
+	}
+	words := strings.Fields(value)
+	for i := range words {
+		lower := strings.ToLower(words[i])
+		if i > 0 && strings.EqualFold(words[i-1], "bearer") {
+			words[i] = "[redacted]"
+			continue
+		}
+		if strings.HasPrefix(lower, "sk-") || strings.HasPrefix(lower, "key=") || strings.HasPrefix(lower, "token=") {
+			words[i] = "[redacted]"
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func max64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func (e usageEvent) String() string {
+	return fmt.Sprintf("%s/%s@%d", e.Provider, e.Model, e.TimestampMS)
+}
