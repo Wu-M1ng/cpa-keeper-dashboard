@@ -27,6 +27,12 @@ func TestDashboardAssetsAreEmbeddedAndSelfContained(t *testing.T) {
 	if !bytes.Contains(js.Body, []byte("usage-keeper-management-key")) {
 		t.Fatal("JS asset does not include session auth handling")
 	}
+	if !bytes.Contains(js.Body, []byte("const endpoint = path.startsWith('/') ? API_ROOT + path : API_ROOT + '/' + path;")) {
+		t.Fatal("JS asset must prefix dashboard API requests with the plugin management route")
+	}
+	if bytes.Contains(js.Body, []byte("fetch(path.startsWith('/') ? path : API_ROOT + path")) {
+		t.Fatal("JS asset still sends dashboard API requests to the site root")
+	}
 	css := serveDashboardAsset("/v0/resource/plugins/usage-keeper/style.css")
 	if css.StatusCode != http.StatusOK || css.Headers.Get("Content-Type") != "text/css; charset=utf-8" {
 		t.Fatalf("CSS asset response: %+v", css)

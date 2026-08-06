@@ -186,7 +186,8 @@
     const headers = new Headers(options.headers || {});
     headers.set('Authorization', `Bearer ${state.managementKey}`);
     if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-    const response = await fetch(path.startsWith('/') ? path : API_ROOT + path, { ...options, headers });
+    const endpoint = path.startsWith('/') ? API_ROOT + path : API_ROOT + '/' + path;
+    const response = await fetch(endpoint, { ...options, headers });
     if (response.status === 401) {
       sessionStorage.removeItem('usage-keeper-management-key');
       state.managementKey = '';
