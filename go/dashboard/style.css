@@ -87,6 +87,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 main { max-width: 1640px; margin: 0 auto; padding: 24px 28px 48px; }
 .page { display: none; }
 .page.is-active { display: block; animation: page-in .18s ease-out; }
+.overview-section { margin-top: 24px; }
 .kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 12px; }
 .kpi-card { min-height: 104px; padding: 17px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .kpi-card span { display: block; color: var(--muted); font-size: 12px; }

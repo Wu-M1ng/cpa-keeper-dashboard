@@ -2,7 +2,7 @@
 
 项目仓库：<https://github.com/Wu-M1ng/cpa-keeper-dashboard>
 
-轻量化的 CLIProxyAPI 原生用量插件。它接收 CLIProxyAPI 已完成的 `UsageRecord`，用有界内存队列异步批写 SQLite，并提供五个内嵌页面：总览、分析、接口、事件、设置。
+轻量化的 CLIProxyAPI 原生用量插件。它接收 CLIProxyAPI 已完成的 `UsageRecord`，用有界内存队列异步批写 SQLite，并提供三个内嵌页面：总览、接口、设置。
 
 ## 设计边界
 
@@ -32,7 +32,7 @@ Linux/macOS 将输出文件名改为 `usage-keeper.so` 或 `usage-keeper.dylib`�
 也可以使用：
 
 ```powershell
-.\scripts\build.ps1 -Version 1.0.3
+.\scripts\build.ps1 -Version 1.0.6
 ```
 
 ## 安装
@@ -80,14 +80,12 @@ GET /v0/resource/plugins/usage-keeper/dashboard
 
 资源页面会出现在 CPA 管理中心的插件菜单中。更新 DLL/SO 后需要重启 CPA，或执行一次插件配置重载，让宿主重新调用 `management.register`。
 
-## 五个页面
+## 三个页面
 
 | 页面 | 内容 |
 | --- | --- |
-| 总览 | KPI、健康监测、请求/Token/费用趋势、队列状态 |
-| 分析 | 模型、上游、API Key、来源分布、Token 构成、模型统计 |
+| 总览 | KPI、健康监测、请求/Token/费用趋势、队列状态、四个分布图、Token 构成、模型统计、请求明细、筛选、分页与 CSV 导出 |
 | 接口 | API Key 统计、上游统计、Provider/Auth 上游详情 |
-| 事件 | 请求明细、时间/模型/Provider/状态筛选、分页、CSV 导出 |
 | 设置 | 模型价格、SQLite/WAL/队列状态、JSON 备份与恢复 |
 
 ## 低负载策略
@@ -106,16 +104,16 @@ UsageRecord -> compact event -> bounded channel -> return
 ## 发布
 
 ```powershell
-.\scripts\build.ps1 -Version 1.0.3 -GoOS windows -GoArch amd64
+.\scripts\build.ps1 -Version 1.0.6 -GoOS windows -GoArch amd64
 ```
 
 推送语义化版本标签后，GitHub Actions 会自动构建 Windows/Linux/macOS 动态库，打包 zip，生成统一的 `checksums.txt`，并创建 GitHub Release：
 
 ```powershell
-git tag v1.0.3
-git push origin v1.0.3
+git tag v1.0.6
+git push origin v1.0.6
 ```
 
-也可在 GitHub Actions 手动运行 `release` 工作流并输入版本标签，例如 `v1.0.3`。工作流会检查远端 tag：不存在时在当前提交创建并推送，存在时直接复用；对应 GitHub Release 已存在时会更新同名发布资产。
+也可在 GitHub Actions 手动运行 `release` 工作流并输入版本标签，例如 `v1.0.6`。工作流会检查远端 tag：不存在时在当前提交创建并推送，存在时直接复用；对应 GitHub Release 已存在时会更新同名发布资产。
 
 发布 zip 根目录直接包含动态库。`registry.json` 是插件商店条目，仓库地址已指向本项目。

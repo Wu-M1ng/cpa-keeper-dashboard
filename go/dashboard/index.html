@@ -34,9 +34,7 @@
       <div class="nav-heading">工作区</div>
       <nav class="primary-nav" aria-label="主要页面">
         <button class="nav-item is-active" data-page-target="overview"><svg><use href="#i-layout-dashboard"/></svg><span>总览</span></button>
-        <button class="nav-item" data-page-target="analysis"><svg><use href="#i-chart"/></svg><span>分析</span></button>
         <button class="nav-item" data-page-target="interfaces"><svg><use href="#i-key"/></svg><span>接口</span></button>
-        <button class="nav-item" data-page-target="events"><svg><use href="#i-list"/></svg><span>事件</span></button>
         <button class="nav-item" data-page-target="settings"><svg><use href="#i-settings"/></svg><span>设置</span></button>
       </nav>
       <div class="sidebar-status"><span id="connection-dot" class="status-dot"></span><span id="connection-label">正在连接</span></div>
@@ -67,7 +65,7 @@
           <div class="runtime-strip" id="runtime-strip"></div>
         </section>
 
-        <section class="page" data-page="analysis">
+        <section class="page is-active overview-section" data-page="overview">
           <div class="distribution-grid" id="distribution-grid"></div>
           <section class="panel token-panel"><div class="panel-head"><div><h2>Token 构成</h2><p>输入、输出、缓存与推理</p></div><strong id="token-total">0</strong></div><div id="token-composition"></div></section>
           <section class="table-section"><div class="section-head"><div><h2>模型统计</h2><p>请求质量、消耗与成本</p></div></div><div class="table-wrap"><table><thead><tr><th>模型</th><th>请求</th><th>成功率</th><th>Token</th><th>平均延迟</th><th>费用</th></tr></thead><tbody id="model-table"></tbody></table></div></section>
@@ -79,7 +77,7 @@
           <section class="table-section"><div class="section-head"><div><h2>上游统计</h2><p>匿名 Provider 凭证分组</p></div></div><div class="table-wrap"><table><thead><tr><th>上游分组</th><th>模型</th><th>请求</th><th>成功率</th><th>平均延迟</th><th>Token</th></tr></thead><tbody id="upstream-table"></tbody></table></div></section>
         </section>
 
-        <section class="page" data-page="events">
+        <section class="page is-active overview-section" data-page="overview">
           <form class="filter-bar" id="event-filters">
             <label><span>搜索</span><input name="q" type="search" placeholder="模型、上游或错误"></label>
             <label><span>Provider</span><select name="provider"><option value="">全部</option></select></label>

@@ -92,6 +92,77 @@ func TestQueryInterfacesAndUpstreamDetail(t *testing.T) {
 	}
 }
 
+func TestProviderCredentialLabelsCombineProviderWithSource(t *testing.T) {
+	store := openTestStore(t)
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	codex := fixtureEvent(now.Add(-time.Hour), "gpt-5.6", false, 100, 20)
+	codex.Provider = "codex"
+	codex.Source = "sk-channel-secret-e0"
+	codex.UpstreamKey = "1111111111111111"
+	codex.UpstreamLabel = "codex / upstream-deadbeef0f"
+	antigravity := fixtureEvent(now.Add(-30*time.Minute), "gemini", false, 80, 10)
+	antigravity.Provider = "antigravity"
+	antigravity.Source = "baduser@example.com"
+	antigravity.UpstreamKey = "2222222222222222"
+	antigravity.UpstreamLabel = "antigravity / aaaaaaaaaaaaaa78"
+	if err := store.writeBatch([]usageEvent{codex, antigravity}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reproduce rows written by an older version: useful source, hashed upstream label.
+	_, err := store.db.Exec(`UPDATE usage_events SET source = CASE provider
+		WHEN 'codex' THEN 'sk-channel-secret-e0' ELSE 'baduser@example.com' END,
+		upstream_label = CASE provider WHEN 'codex' THEN 'codex / upstream-deadbeef0f'
+		ELSE 'antigravity / aaaaaaaaaaaaaa78' END`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.db.Exec(`UPDATE usage_minute_rollups SET source = CASE provider
+		WHEN 'codex' THEN 'sk-channel-secret-e0' ELSE 'baduser@example.com' END,
+		upstream_label = CASE provider WHEN 'codex' THEN 'codex / upstream-deadbeef0f'
+		ELSE 'antigravity / aaaaaaaaaaaaaa78' END`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	analysis, err := queryAnalysis(context.Background(), store, url.Values{"range": {"24h"}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interfaces, err := queryInterfaces(context.Background(), store, url.Values{"range": {"24h"}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := queryEvents(context.Background(), store, eventFilter{
+		FromMS: now.Add(-24 * time.Hour).UnixMilli(), ToMS: now.UnixMilli(), Page: 1, PageSize: 25,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, items := range map[string][]dimensionStat{
+		"source distribution": analysis.Distributions["sources"],
+		"upstream stats":      interfaces.Upstreams,
+	} {
+		labels := make(map[string]bool, len(items))
+		for _, item := range items {
+			labels[item.Name] = true
+		}
+		if !labels["codex / sk-***e0"] || !labels["antigravity / bad***om"] {
+			t.Fatalf("%s labels = %+v", name, labels)
+		}
+	}
+	for _, event := range page.Events {
+		want := "codex / sk-***e0"
+		if event.Provider == "antigravity" {
+			want = "antigravity / bad***om"
+		}
+		if event.Source != want || event.UpstreamLabel != want {
+			t.Fatalf("event labels = source %q upstream %q, want %q", event.Source, event.UpstreamLabel, want)
+		}
+	}
+}
+
 func TestQueryEventsFiltersAndPaginates(t *testing.T) {
 	store, now := seededQueryStore(t)
 	page, err := queryEvents(context.Background(), store, eventFilter{

@@ -224,7 +224,10 @@ func compactUsageRecord(record usageRecord, salt string) usageEvent {
 	model := cleanDimension(record.Model, "unknown")
 	upstreamMaterial := strings.Join([]string{provider, record.AuthID, record.AuthIndex, record.AuthType}, "\x00")
 	upstreamKey := shortHMAC(upstreamMaterial, salt)
-	credential := preferredProviderCredential(record.AuthType, record.AuthID, record.AuthIndex)
+	credential := providerCredentialFromSource(provider, record.Source)
+	if credential == "" {
+		credential = preferredProviderCredential(record.AuthType, record.AuthID, record.AuthIndex)
+	}
 	upstreamLabel := providerCredentialLabel(provider, credential, upstreamKey)
 	source := upstreamLabel
 	apiHash := ""
@@ -305,7 +308,10 @@ func normalizeEventForStorage(event *usageEvent, salt string) {
 		event.UpstreamKey = shortHMAC(event.UpstreamKey, salt)
 	}
 	event.APIKeyMask = anonymousLabel("key", event.APIKeyHash)
-	credential := preferredProviderCredential(event.AuthType, event.AuthID, event.AuthIndex)
+	credential := providerCredentialFromSource(event.Provider, event.Source)
+	if credential == "" {
+		credential = preferredProviderCredential(event.AuthType, event.AuthID, event.AuthIndex)
+	}
 	event.UpstreamLabel = providerCredentialLabelFromStored(event.Provider, credential, event.UpstreamLabel, event.UpstreamKey)
 	event.Source = event.UpstreamLabel
 	event.AuthID = ""
@@ -320,6 +326,27 @@ func preferredProviderCredential(authType, authID, authIndex string) string {
 		return firstNonEmpty(authIndex, authID, authType)
 	}
 	return firstNonEmpty(authID, authIndex, authType)
+}
+
+func providerCredentialFromSource(provider, source string) string {
+	source = strings.TrimSpace(strings.ReplaceAll(source, " · ", " / "))
+	if source == "" {
+		return ""
+	}
+	parts := strings.Split(source, " / ")
+	candidate := strings.TrimSpace(parts[len(parts)-1])
+	lower := strings.ToLower(candidate)
+	if candidate == "" || strings.EqualFold(candidate, strings.TrimSpace(provider)) {
+		return ""
+	}
+	switch lower {
+	case "unknown", "apikey", "api-key", "key", "credential", "auth", "oauth":
+		return ""
+	}
+	if len(parts) > 1 || strings.Contains(candidate, "***") || strings.Contains(candidate, "@") || len([]rune(candidate)) >= 10 {
+		return candidate
+	}
+	return ""
 }
 
 func providerCredentialLabel(provider, credential, fallbackKey string) string {

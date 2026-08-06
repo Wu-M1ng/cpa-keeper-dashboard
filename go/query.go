@@ -68,6 +68,7 @@ type dimensionStat struct {
 
 	latencySum int64
 	modelSet   map[string]struct{}
+	provider   string
 }
 
 type analysisResponse struct {
@@ -354,7 +355,7 @@ func queryInterfaces(ctx context.Context, store *eventStore, query url.Values, n
 	if err != nil {
 		return interfacesResponse{}, err
 	}
-	upstreams, err := queryDimension(ctx, store, rng, "upstream_key", "upstream_label", "", "", prices)
+	upstreams, err := queryDimension(ctx, store, rng, "upstream_key", "source", "", "", prices)
 	if err != nil {
 		return interfacesResponse{}, err
 	}
@@ -383,10 +384,10 @@ func queryUpstreamDetail(ctx context.Context, store *eventStore, key string, que
 	for _, model := range models {
 		mergeDimension(&result.Summary, model)
 	}
-	var storedName string
-	_ = store.db.QueryRowContext(ctx, `SELECT MAX(upstream_label) FROM usage_minute_rollups
-		WHERE upstream_key = ? AND minute BETWEEN ? AND ?`, key, rng.FromMS/60000, rng.ToMS/60000).Scan(&storedName)
-	result.Name = maskedProviderCredentialDisplay(storedName, key)
+	var storedName, provider string
+	_ = store.db.QueryRowContext(ctx, `SELECT MAX(source), MAX(provider) FROM usage_minute_rollups
+		WHERE upstream_key = ? AND minute BETWEEN ? AND ?`, key, rng.FromMS/60000, rng.ToMS/60000).Scan(&storedName, &provider)
+	result.Name = maskedProviderCredentialDisplay(provider, storedName, key)
 	result.Summary.Key, result.Summary.Name = key, result.Name
 	result.Summary.SuccessRate = ratio(result.Summary.Successes, result.Summary.Requests)
 	result.Summary.AvgLatencyMS = average(result.Summary.latencySum, result.Summary.Requests)
@@ -441,11 +442,11 @@ func queryDimension(ctx context.Context, store *eventStore, rng timeRange, keyCo
 		where += " AND " + filterColumn + " = ?"
 		args = append(args, filterValue)
 	}
-	statement := fmt.Sprintf(`SELECT %s, MAX(%s), model, SUM(requests), SUM(successes),
+	statement := fmt.Sprintf(`SELECT %s, MAX(%s), provider, model, SUM(requests), SUM(successes),
 		SUM(failures), SUM(input_tokens), SUM(output_tokens), SUM(reasoning_tokens),
 		SUM(cached_tokens), SUM(cache_read_tokens), SUM(cache_creation_tokens),
 		SUM(total_tokens), SUM(latency_sum_ms)
-		FROM usage_minute_rollups WHERE %s GROUP BY %s, model`, keyColumn, labelColumn, where, keyColumn)
+		FROM usage_minute_rollups WHERE %s GROUP BY %s, provider, model`, keyColumn, labelColumn, where, keyColumn)
 	rows, err := store.db.QueryContext(ctx, statement, args...)
 	if err != nil {
 		return nil, err
@@ -453,17 +454,21 @@ func queryDimension(ctx context.Context, store *eventStore, rng timeRange, keyCo
 	defer rows.Close()
 	byKey := make(map[string]*dimensionStat)
 	for rows.Next() {
-		var key, label, model string
+		var key, label, provider, model string
 		var row dimensionStat
-		if err := rows.Scan(&key, &label, &model, &row.Requests, &row.Successes, &row.Failures,
+		if err := rows.Scan(&key, &label, &provider, &model, &row.Requests, &row.Successes, &row.Failures,
 			&row.Tokens.Input, &row.Tokens.Output, &row.Tokens.Reasoning, &row.Tokens.Cached,
 			&row.Tokens.CacheRead, &row.Tokens.CacheWrite, &row.Tokens.Total, &row.latencySum); err != nil {
 			return nil, err
 		}
-		stat := byKey[key]
+		groupKey := key
+		if keyColumn == "source" {
+			groupKey = provider + "\x00" + key
+		}
+		stat := byKey[groupKey]
 		if stat == nil {
-			stat = &dimensionStat{Key: key, Name: label, modelSet: make(map[string]struct{})}
-			byKey[key] = stat
+			stat = &dimensionStat{Key: key, Name: label, provider: provider, modelSet: make(map[string]struct{})}
+			byKey[groupKey] = stat
 		}
 		stat.Requests += row.Requests
 		stat.Successes += row.Successes
@@ -544,25 +549,27 @@ func anonymizeDimensionStats(stats []dimensionStat, prefix string, preserveKey b
 func maskProviderCredentialStats(stats []dimensionStat, preserveKey bool) {
 	for i := range stats {
 		key := stats[i].Key
-		stats[i].Name = maskedProviderCredentialDisplay(stats[i].Name, key)
+		stats[i].Name = maskedProviderCredentialDisplay(stats[i].provider, stats[i].Name, key)
 		if !preserveKey {
 			stats[i].Key = publicIdentifier("source", key)
 		}
 	}
 }
 
-func maskedProviderCredentialDisplay(label, fallbackKey string) string {
+func maskedProviderCredentialDisplay(provider, label, fallbackKey string) string {
 	label = strings.TrimSpace(strings.ReplaceAll(label, " · ", " / "))
 	parts := strings.Split(label, " / ")
 	if len(parts) >= 2 {
-		provider := cleanDimension(parts[0], "unknown")
+		if strings.TrimSpace(provider) == "" {
+			provider = parts[0]
+		}
 		credential := strings.TrimSpace(parts[len(parts)-1])
 		if strings.Contains(credential, "***") {
-			return provider + " / " + credential
+			return cleanDimension(provider, "unknown") + " / " + credential
 		}
 		return providerCredentialLabel(provider, credential, fallbackKey)
 	}
-	return providerCredentialLabel("unknown", label, fallbackKey)
+	return providerCredentialLabel(provider, label, fallbackKey)
 }
 
 func publicIdentifier(prefix, value string) string {
@@ -579,9 +586,9 @@ func redactEventForManagement(event *usageEvent) {
 	event.AuthID = ""
 	event.AuthIndex = ""
 	event.AuthType = ""
-	event.UpstreamLabel = maskedProviderCredentialDisplay(event.UpstreamLabel, event.UpstreamKey)
+	event.UpstreamLabel = maskedProviderCredentialDisplay(event.Provider, event.Source, event.UpstreamKey)
 	event.UpstreamKey = ""
-	event.Source = maskedProviderCredentialDisplay(event.Source, "")
+	event.Source = event.UpstreamLabel
 	event.Failure = sanitizeFailure(event.Failure)
 }
 

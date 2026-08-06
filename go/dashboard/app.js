@@ -2,12 +2,11 @@
   'use strict';
 
   const API_ROOT = '/v0/management/plugins/usage-keeper';
+  const AUTO_REFRESH_MS = 30_000;
   const COLORS = ['var(--blue)', 'var(--accent)', 'var(--orange)', 'var(--yellow)', 'var(--red)', '#7589b5'];
   const pageMeta = {
     overview: ['总览', '运行状态与用量脉搏'],
-    analysis: ['分析', '维度分布与模型表现'],
     interfaces: ['接口', '客户端与上游调用结构'],
-    events: ['事件', '请求明细与故障定位'],
     settings: ['设置', '价格、存储与数据迁移'],
   };
   const state = {
@@ -16,6 +15,7 @@
     theme: readTheme(),
     managementKey: readManagementKey(),
     loading: false,
+    lastRefreshAt: 0,
     cache: new Map(),
     eventPage: 1,
     eventPages: 0,
@@ -42,6 +42,18 @@
     bindAuth();
     updateConnection(Boolean(state.managementKey));
     loadActivePage(true);
+    startAutoRefresh();
+  }
+
+  function startAutoRefresh() {
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!state.managementKey || state.loading || state.page === 'settings') return;
+      if (Date.now() - state.lastRefreshAt < AUTO_REFRESH_MS) return;
+      loadActivePage(true);
+    };
+    window.setInterval(refresh, AUTO_REFRESH_MS);
+    document.addEventListener('visibilitychange', refresh);
   }
 
   function bindTheme() {
@@ -154,11 +166,10 @@
     setLoading(true);
     try {
       if (state.page === 'overview') await loadOverview(force);
-      if (state.page === 'analysis') await loadAnalysis(force);
       if (state.page === 'interfaces') await loadInterfaces(force);
-      if (state.page === 'events') await loadEvents(force);
       if (state.page === 'settings') await loadSettings(force);
       updateConnection(true);
+      state.lastRefreshAt = Date.now();
     } catch (error) {
       if (error.name !== 'AuthRequired') {
         toast(error.message || '加载失败', true);
@@ -224,11 +235,20 @@
   }
 
   async function loadOverview(force) {
-    const data = await cached('/summary', force);
-    renderKPIs(data.kpi || {});
-    renderTrend(data.trend || []);
-    renderHealth(data.health || [], data.kpi || {});
-    renderRuntime(data.runtime || {});
+    const params = eventParams();
+    const [summary, analysis, events] = await Promise.all([
+      cached('/summary', force),
+      cached('/analysis', force),
+      api(`/events?${params}`),
+    ]);
+    renderKPIs(summary.kpi || {});
+    renderTrend(summary.trend || []);
+    renderHealth(summary.health || [], summary.kpi || {});
+    renderRuntime(summary.runtime || {});
+    renderAnalysis(analysis);
+    renderEventOptions(analysis);
+    state.eventPages = events.pages || 0;
+    renderEvents(events);
   }
 
   function renderKPIs(kpi) {
@@ -289,6 +309,10 @@
 
   async function loadAnalysis(force) {
     const data = await cached('/analysis', force);
+    renderAnalysis(data);
+  }
+
+  function renderAnalysis(data) {
     renderDistributions(data.distributions || {});
     renderTokenComposition(data.tokens || {});
     renderModelTable(data.models || []);
@@ -396,6 +420,10 @@
 
   async function loadEventOptions(force) {
     const analysis = await cached('/analysis', force);
+    renderEventOptions(analysis);
+  }
+
+  function renderEventOptions(analysis) {
     const distributions = analysis.distributions || {};
     fillSelect($('#event-filters [name="provider"]'), distributions.providers || []);
     fillSelect($('#event-filters [name="model"]'), distributions.models || []);
