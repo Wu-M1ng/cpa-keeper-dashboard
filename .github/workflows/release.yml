@@ -26,10 +26,11 @@ jobs:
             runner: macos-latest
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.24.x"
+          cache-dependency-path: go/go.sum
       - name: Build plugin
         working-directory: go
         shell: bash
@@ -41,7 +42,21 @@ jobs:
         run: |
           version="${RELEASE_TAG#v}"
           go build -trimpath -buildmode=c-shared -ldflags "-s -w -X main.pluginVersion=${version}" -o usage-keeper.${{ matrix.ext }} .
-      - name: Package
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          $asset = "usage-keeper_${version}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          $assetDir = Join-Path "dist" $asset
+          $binary = "usage-keeper.${{ matrix.ext }}"
+          New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+          Copy-Item -LiteralPath (Join-Path "go" $binary) -Destination (Join-Path $assetDir $binary)
+          Compress-Archive -LiteralPath (Join-Path $assetDir $binary) -DestinationPath (Join-Path "dist" "${asset}.zip") -CompressionLevel Optimal
+      - name: Package Unix
+        if: runner.os != 'Windows'
         shell: bash
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -51,7 +66,7 @@ jobs:
           mkdir -p "dist/${asset}"
           cp "go/usage-keeper.${{ matrix.ext }}" "dist/${asset}/"
           (cd "dist/${asset}" && zip -q "../${asset}.zip" "usage-keeper.${{ matrix.ext }}")
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: usage-keeper-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*.zip
@@ -64,7 +79,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           pattern: usage-keeper-*
           path: release
@@ -76,16 +91,15 @@ jobs:
           mapfile -t packages < <(find . -maxdepth 1 -type f -name '*.zip' -printf '%f\n' | sort)
           test "${#packages[@]}" -gt 0
           sha256sum "${packages[@]}" > checksums.txt
-      - uses: softprops/action-gh-release@v2
+      - name: Publish GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: CLIProxyAPI Keeper ${{ github.ref_name }}
-          generate_release_notes: true
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          fail_on_unmatched_files: true
-          files: |
-            release/*.zip
-            release/checksums.txt
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          release_args=(--title "CLIProxyAPI Keeper ${RELEASE_TAG}" --generate-notes)
+          if [[ "${RELEASE_TAG}" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+          gh release create "${RELEASE_TAG}" "${release_args[@]}" release/*.zip release/checksums.txt
