@@ -80,8 +80,14 @@ func TestManagementRegistrationUsesExactRoutes(t *testing.T) {
 	if len(registration.Resources) != 3 {
 		t.Fatalf("resources = %d, want 3", len(registration.Resources))
 	}
-	if registration.Resources[0].Path != "/" || registration.Resources[0].Menu != "用量 Keeper" {
+	if registration.Resources[0].Path != "/dashboard" || registration.Resources[0].Menu != "用量 Keeper" {
 		t.Fatalf("unexpected menu resource: %+v", registration.Resources[0])
+	}
+	if registration.Resources[0].Description == "" {
+		t.Fatal("menu resource description must be present")
+	}
+	if registration.Resources[1].Path != "/app.js" || registration.Resources[2].Path != "/style.css" {
+		t.Fatalf("unexpected static resources: %+v", registration.Resources)
 	}
 	if len(registration.Routes) < 10 {
 		t.Fatalf("management routes = %d, want complete dashboard API", len(registration.Routes))
@@ -132,17 +138,24 @@ func TestManagementWireUsesOfficialFieldNames(t *testing.T) {
 	if request.Method != "GET" || request.Path == "" || request.Query.Get("range") != "24h" {
 		t.Fatalf("official management request was not decoded: %+v", request)
 	}
+	var officialRequest managementRequest
+	if err := json.Unmarshal([]byte(`{"Method":"GET","Path":"/v0/management/plugins/usage-keeper/summary","Query":{"range":["24h"]},"Body":""}`), &officialRequest); err != nil {
+		t.Fatal(err)
+	}
+	if officialRequest.Method != "GET" || officialRequest.Path == "" || officialRequest.Query.Get("range") != "24h" {
+		t.Fatalf("PascalCase management request was not decoded: %+v", officialRequest)
+	}
 
 	raw, err := json.Marshal(managementResponse{StatusCode: 200, Body: []byte(`{"ok":true}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	encoded := string(raw)
-	if !strings.Contains(encoded, `"status_code":200`) || !strings.Contains(encoded, `"body":"eyJvayI6dHJ1ZX0="`) {
+	if !strings.Contains(encoded, `"StatusCode":200`) || !strings.Contains(encoded, `"Body":"eyJvayI6dHJ1ZX0="`) {
 		t.Fatalf("management response did not use ABI field names: %s", encoded)
 	}
-	if strings.Contains(encoded, `"StatusCode"`) || strings.Contains(encoded, `"Body"`) {
-		t.Fatalf("management response still uses legacy field names: %s", encoded)
+	if strings.Contains(encoded, `"status_code"`) || strings.Contains(encoded, `"body"`) {
+		t.Fatalf("management response still uses non-ABI field names: %s", encoded)
 	}
 
 	raw, err = handleMethod("management.register", nil)
@@ -151,5 +164,8 @@ func TestManagementWireUsesOfficialFieldNames(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"routes"`) || !strings.Contains(string(raw), `"resources"`) {
 		t.Fatalf("management registration did not use official field names: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"Path":"/dashboard"`) || !strings.Contains(string(raw), `"Menu":"用量 Keeper"`) {
+		t.Fatalf("management registration did not expose the CPA menu resource: %s", raw)
 	}
 }

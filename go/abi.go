@@ -77,7 +77,7 @@ func handleRegister(raw []byte) ([]byte, error) {
 func managementRoutes() managementRegistration {
 	return managementRegistration{
 		Resources: []resourceRoute{
-			{Path: "/", Menu: "用量 Keeper", Description: "轻量用量统计与健康监测。"},
+			{Path: "/dashboard", Menu: "用量 Keeper", Description: "轻量用量统计与健康监测。"},
 			{Path: "/app.js"},
 			{Path: "/style.css"},
 		},

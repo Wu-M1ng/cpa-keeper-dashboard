@@ -66,10 +66,19 @@ plugins:
 
 ```text
 GET /v0/management/plugins
-GET /v0/resource/plugins/usage-keeper/
+GET /v0/resource/plugins/usage-keeper/dashboard
 ```
 
-管理中心需要显示 `registered: true` 与 `effective_enabled: true`。资源页面会出现在 CPA 管理中心的插件菜单中。
+管理中心需要显示 `registered: true` 与 `effective_enabled: true`，并在该插件的 `menus` 数组中看到：
+
+```json
+{
+  "path": "/v0/resource/plugins/usage-keeper/dashboard",
+  "menu": "用量 Keeper"
+}
+```
+
+资源页面会出现在 CPA 管理中心的插件菜单中。更新 DLL/SO 后需要重启 CPA，或执行一次插件配置重载，让宿主重新调用 `management.register`。
 
 ## 五个页面
 

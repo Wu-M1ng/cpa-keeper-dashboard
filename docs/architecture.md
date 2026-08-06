@@ -33,7 +33,9 @@ API Key 原文不落库。界面只展示缩略值，分组使用 HMAC-SHA256 �
 资源页面：
 
 ```text
-/v0/resource/plugins/usage-keeper/
+/v0/resource/plugins/usage-keeper/dashboard
+/v0/resource/plugins/usage-keeper/app.js
+/v0/resource/plugins/usage-keeper/style.css
 ```
 
 鉴权 Management API：

@@ -110,9 +110,8 @@ func handleManagement(request managementRequest) managementResponse {
 }
 
 func isResourcePath(path string) bool {
-	return path == "/v0/resource/plugins/usage-keeper" ||
-		path == "/v0/resource/plugins/usage-keeper/" ||
-		path == "/app.js" || path == "/style.css" || path == "/" ||
+	return path == "/v0/resource/plugins/usage-keeper/dashboard" ||
+		path == "/dashboard" || path == "/app.js" || path == "/style.css" ||
 		path == "/v0/resource/plugins/usage-keeper/app.js" ||
 		path == "/v0/resource/plugins/usage-keeper/style.css"
 }

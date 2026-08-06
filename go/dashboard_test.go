@@ -8,7 +8,7 @@ import (
 )
 
 func TestDashboardAssetsAreEmbeddedAndSelfContained(t *testing.T) {
-	root := serveDashboardAsset("/v0/resource/plugins/usage-keeper/")
+	root := serveDashboardAsset("/v0/resource/plugins/usage-keeper/dashboard")
 	if root.StatusCode != http.StatusOK || root.Headers.Get("Content-Type") != "text/html; charset=utf-8" {
 		t.Fatalf("root asset response: %+v", root)
 	}

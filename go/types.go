@@ -69,15 +69,15 @@ type managementRegistration struct {
 }
 
 type managementRoute struct {
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	Description string `json:"description,omitempty"`
+	Method      string `json:"Method"`
+	Path        string `json:"Path"`
+	Description string `json:"Description,omitempty"`
 }
 
 type resourceRoute struct {
-	Path        string `json:"path"`
-	Menu        string `json:"menu,omitempty"`
-	Description string `json:"description,omitempty"`
+	Path        string `json:"Path"`
+	Menu        string `json:"Menu,omitempty"`
+	Description string `json:"Description,omitempty"`
 }
 
 type managementRequest struct {
@@ -89,9 +89,9 @@ type managementRequest struct {
 }
 
 type managementResponse struct {
-	StatusCode int         `json:"status_code"`
-	Headers    http.Header `json:"headers"`
-	Body       []byte      `json:"body"`
+	StatusCode int         `json:"StatusCode"`
+	Headers    http.Header `json:"Headers"`
+	Body       []byte      `json:"Body"`
 }
 
 type usageRecord struct {

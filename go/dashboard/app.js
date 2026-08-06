@@ -13,6 +13,7 @@
   const state = {
     page: 'overview',
     range: '24h',
+    theme: readTheme(),
     managementKey: readManagementKey(),
     loading: false,
     cache: new Map(),
@@ -32,6 +33,7 @@
   document.addEventListener('DOMContentLoaded', init);
 
   function init() {
+    bindTheme();
     bindNavigation();
     bindRange();
     bindEvents();
@@ -40,6 +42,26 @@
     bindAuth();
     updateConnection(Boolean(state.managementKey));
     loadActivePage(true);
+  }
+
+  function bindTheme() {
+    applyTheme(state.theme);
+    $$('#theme-control button').forEach((button) => button.addEventListener('click', () => {
+      state.theme = button.dataset.theme || 'auto';
+      try { localStorage.setItem('usage-keeper-theme', state.theme); } catch (_) { /* Storage may be disabled. */ }
+      applyTheme(state.theme);
+    }));
+  }
+
+  function applyTheme(theme) {
+    const explicit = theme === 'light' || theme === 'dark' ? theme : '';
+    if (explicit) document.documentElement.dataset.theme = explicit;
+    else delete document.documentElement.dataset.theme;
+    $$('#theme-control button').forEach((button) => {
+      const active = button.dataset.theme === theme;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
   }
 
   function bindNavigation() {
@@ -485,6 +507,14 @@
       }
     } catch (_) { /* Storage access can be disabled by browser policy. */ }
     return '';
+  }
+
+  function readTheme() {
+    try {
+      const saved = localStorage.getItem('usage-keeper-theme');
+      if (saved === 'light' || saved === 'dark' || saved === 'auto') return saved;
+    } catch (_) { /* Storage may be disabled. */ }
+    return 'auto';
   }
 
   function decodeObfuscated(value) {

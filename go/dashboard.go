@@ -19,7 +19,7 @@ func serveDashboardAsset(path string) managementResponse {
 	case path == "/style.css" || strings.HasSuffix(path, "/style.css"):
 		asset = "dashboard/style.css"
 		contentType = "text/css; charset=utf-8"
-	case path == "/" || path == "/v0/resource/plugins/usage-keeper" || path == "/v0/resource/plugins/usage-keeper/":
+	case path == "/dashboard" || path == "/v0/resource/plugins/usage-keeper/dashboard":
 	default:
 		return errorResponse(http.StatusNotFound, "asset_not_found", "asset not found")
 	}
