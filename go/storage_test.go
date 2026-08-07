@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -114,6 +116,98 @@ func TestStorageRetentionPrunesEventsAndRollups(t *testing.T) {
 	_ = store.db.QueryRow("SELECT COUNT(*) FROM usage_minute_rollups").Scan(&rollupCount)
 	if eventCount != 1 || rollupCount != 1 {
 		t.Fatalf("retention left events=%d rollups=%d, want 1/1", eventCount, rollupCount)
+	}
+}
+
+func TestStorageMigratesEndpointColumnWithoutLosingEvents(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.StoragePath = filepath.Join(t.TempDir(), "legacy.db")
+	store, err := openEventStore(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.writeBatch([]usageEvent{fixtureEvent(time.Now().UTC(), "gpt-5.6", false, 10, 5)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(cfg.StoragePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.Query("PRAGMA table_info(usage_events)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasEndpoint := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, dataType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
+			t.Fatal(err)
+		}
+		hasEndpoint = hasEndpoint || name == "endpoint"
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if hasEndpoint {
+		if _, err := db.Exec("ALTER TABLE usage_events DROP COLUMN endpoint"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := openEventStore(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.close() })
+	var count int
+	var endpoint string
+	if err := reopened.db.QueryRow("SELECT COUNT(*), COALESCE(MAX(endpoint), '') FROM usage_events").Scan(&count, &endpoint); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || endpoint != "" {
+		t.Fatalf("migration retained count=%d endpoint=%q, want 1 and empty path", count, endpoint)
+	}
+}
+
+func TestStorageAppliesConnectionPragmasToEntirePool(t *testing.T) {
+	store := openTestStore(t)
+	connections := make([]*sql.Conn, 0, 4)
+	for i := 0; i < 4; i++ {
+		connection, err := store.db.Conn(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		connections = append(connections, connection)
+	}
+	defer func() {
+		for _, connection := range connections {
+			_ = connection.Close()
+		}
+	}()
+
+	for index, connection := range connections {
+		var busyTimeout, synchronous, tempStore int
+		if err := connection.QueryRowContext(context.Background(), "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+			t.Fatal(err)
+		}
+		if err := connection.QueryRowContext(context.Background(), "PRAGMA synchronous").Scan(&synchronous); err != nil {
+			t.Fatal(err)
+		}
+		if err := connection.QueryRowContext(context.Background(), "PRAGMA temp_store").Scan(&tempStore); err != nil {
+			t.Fatal(err)
+		}
+		if busyTimeout != 2000 || synchronous != 1 || tempStore != 2 {
+			t.Fatalf("connection %d pragmas busy=%d synchronous=%d temp_store=%d", index, busyTimeout, synchronous, tempStore)
+		}
 	}
 }
 

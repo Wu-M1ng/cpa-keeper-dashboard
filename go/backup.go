@@ -71,6 +71,16 @@ func importBackup(ctx context.Context, store *eventStore, payload backupPayload)
 		if event.TimestampMS <= 0 || strings.TrimSpace(event.Model) == "" || strings.TrimSpace(event.Provider) == "" {
 			return importResult{}, fmt.Errorf("event %d is invalid", i+1)
 		}
+		measurements := []int64{
+			event.LatencyMS, event.TTFTMS, event.InputTokens, event.OutputTokens,
+			event.ReasoningTokens, event.CachedTokens, event.CacheReadTokens,
+			event.CacheCreationTokens, event.TotalTokens,
+		}
+		for _, measurement := range measurements {
+			if measurement < 0 {
+				return importResult{}, fmt.Errorf("event %d contains a negative measurement", i+1)
+			}
+		}
 		normalizeEventForStorage(event, store.hashSalt)
 	}
 	tx, err := store.db.BeginTx(ctx, nil)
@@ -115,7 +125,7 @@ func exportEventsCSV(ctx context.Context, store *eventStore, filter eventFilter,
 	var output strings.Builder
 	writer := csv.NewWriter(&output)
 	_ = writer.Write([]string{
-		"time", "provider", "model", "api_key", "upstream", "source", "status",
+		"time", "provider", "model", "endpoint", "api_key", "upstream", "source", "status",
 		"status_code", "latency_ms", "ttft_ms", "input_tokens", "output_tokens",
 		"cache_read_tokens", "cache_write_tokens", "reasoning_tokens", "total_tokens", "failure",
 	})
@@ -131,7 +141,7 @@ func exportEventsCSV(ctx context.Context, store *eventStore, filter eventFilter,
 		}
 		_ = writer.Write([]string{
 			time.UnixMilli(event.TimestampMS).UTC().Format(time.RFC3339), event.Provider,
-			event.Model, event.APIKeyMask, event.UpstreamLabel, event.Source, status,
+			event.Model, event.Endpoint, event.APIKeyMask, event.UpstreamLabel, event.Source, status,
 			strconv.Itoa(event.StatusCode), strconv.FormatInt(event.LatencyMS, 10),
 			strconv.FormatInt(event.TTFTMS, 10), strconv.FormatInt(event.InputTokens, 10),
 			strconv.FormatInt(event.OutputTokens, 10), strconv.FormatInt(event.CacheReadTokens, 10),

@@ -1,0 +1,1782 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="用量 Keeper — CLIProxyAPI 独立用量监控仪表盘展示样例">
+  <title>用量 Keeper — 单文件示例页面</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f5f7;
+      --surface: #ffffff;
+      --surface-2: #f7f8fa;
+      --surface-3: #eef0f3;
+      --text: #202124;
+      --muted: #73777f;
+      --line: #e4e6ea;
+      --line-strong: #d3d6dc;
+      --blue: #326ff5;
+      --purple: #7738ee;
+      --green: #20b95a;
+      --orange: #ff7a12;
+      --teal: #18ad9d;
+      --red: #e44e3f;
+      --yellow: #dda918;
+      --accent: var(--blue);
+      --focus: #326ff5;
+      --shadow-sm: 0 4px 12px rgba(24, 28, 38, .06);
+      --shadow-md: 0 12px 28px rgba(24, 28, 38, .08);
+      --shadow-lg: 0 24px 56px rgba(24, 28, 38, .11);
+      --radius: 20px;
+      --radius-sm: 12px;
+    }
+
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #111214;
+      --surface: #191b1e;
+      --surface-2: #202226;
+      --surface-3: #292c31;
+      --text: #f2f3f5;
+      --muted: #a4a8b0;
+      --line: #30333a;
+      --line-strong: #41454d;
+      --shadow-sm: 0 4px 12px rgba(0, 0, 0, .18);
+      --shadow-md: 0 12px 28px rgba(0, 0, 0, .24);
+      --shadow-lg: 0 24px 56px rgba(0, 0, 0, .32);
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--surface-3); }
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px;
+      overflow-x: hidden;
+      background: var(--surface-3);
+      color: var(--text);
+      font-family: 'Outfit', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select { font: inherit; letter-spacing: 0; }
+    button { color: inherit; }
+    button, select { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .52; }
+    button:focus-visible { outline: 3px solid color-mix(in srgb, var(--focus) 24%, transparent); outline-offset: 2px; }
+    svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+    [hidden] { display: none !important; }
+
+    .app-shell {
+      width: min(1880px, 100%);
+      min-height: calc(100vh - 48px);
+      margin: 0 auto;
+      padding: 18px;
+      overflow: clip;
+      border: 1px solid rgba(255, 255, 255, .5);
+      border-radius: 28px;
+      background: var(--bg);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 18px;
+      z-index: 20;
+      min-height: 82px;
+      padding: 14px 20px;
+      display: grid;
+      grid-template-columns: auto minmax(280px, 1fr) auto;
+      align-items: center;
+      gap: 24px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: color-mix(in srgb, var(--surface) 94%, transparent);
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(18px);
+    }
+    .brand { min-width: 220px; display: flex; align-items: center; gap: 15px; }
+    .brand-mark {
+      position: relative;
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 42px;
+      border-radius: 11px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 18px;
+      font-weight: 900;
+      box-shadow: 7px -5px 0 -2px var(--purple), -7px 6px 0 -2px var(--teal), 6px 7px 0 -3px var(--red);
+      transform: rotate(-5deg);
+    }
+    .brand > span:last-child { min-width: 0; display: grid; gap: 2px; }
+    .brand strong { overflow: hidden; font-size: 20px; font-weight: 850; white-space: nowrap; text-overflow: ellipsis; }
+    .brand small { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .nav-heading { display: none; }
+    .primary-nav {
+      justify-self: center;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-2);
+    }
+    .nav-item {
+      min-width: 104px;
+      height: 42px;
+      padding: 0 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 750;
+      transition: color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
+    }
+    .nav-item:hover { color: var(--text); }
+    .nav-item.is-active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+    .nav-item:active { transform: translateY(1px); }
+    .sidebar-status, .topbar-state {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .sidebar-status { justify-self: end; padding: 11px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); }
+    .status-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 4px color-mix(in srgb, var(--red) 13%, transparent); }
+    .status-dot.is-online { background: var(--green); box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 13%, transparent); }
+
+    .workspace { min-width: 0; }
+    .topbar {
+      min-height: 140px;
+      padding: 30px 4px 20px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .topbar-heading { min-width: 0; }
+    .topbar-kicker { display: block; color: var(--blue); font-size: 10px; font-weight: 850; text-transform: uppercase; }
+    .topbar h1 { margin: 8px 0 4px; font-size: 30px; line-height: 1.12; font-weight: 850; }
+    .topbar p { margin: 0; color: var(--muted); font-size: 13px; }
+    .topbar-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+    .topbar-state { min-height: 42px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: var(--shadow-sm); }
+    .theme-switcher, .segmented {
+      min-height: 44px;
+      padding: 4px;
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
+    }
+    .theme-switcher button, .segmented button {
+      height: 34px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+    }
+    .theme-switcher button:hover, .segmented button:hover { color: var(--text); }
+    .theme-switcher button.is-active, .segmented button.is-active { background: var(--surface-2); color: var(--text); box-shadow: 0 2px 8px rgba(22, 26, 34, .08); }
+    .icon-button {
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 44px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: var(--shadow-sm);
+      transition: border-color .16s ease, background .16s ease, transform .16s ease;
+    }
+    .icon-button:hover { border-color: var(--line-strong); background: var(--surface-2); }
+    .icon-button:active { transform: translateY(1px); }
+    .icon-button.is-spinning svg { animation: spin .8s linear infinite; }
+
+    main { min-width: 0; padding: 0 0 34px; }
+    .page { display: none; }
+    .page.is-active { display: block; animation: page-in .2s ease-out; }
+    .overview-section { margin-top: 20px; }
+
+    /* ---- 顶部 KPI 双行网格 ---- */
+    .kpi-section { display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; }
+    .kpi-row-top { display: grid; grid-template-columns: 1fr 1.15fr 1.15fr; gap: 16px; }
+    .kpi-row-bottom { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .kpi-panel {
+      position: relative;
+      min-width: 0;
+      padding: 20px 22px 18px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--surface);
+      box-shadow: var(--shadow-md);
+      transition: transform .2s cubic-bezier(.4, 0, .2, 1), box-shadow .2s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .kpi-panel:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+    .kpi-panel.theme-blue { background: linear-gradient(135deg, color-mix(in srgb, var(--blue) 8%, var(--surface)), var(--surface) 65%); }
+    .kpi-panel.theme-purple { background: linear-gradient(135deg, color-mix(in srgb, var(--purple) 8%, var(--surface)), var(--surface) 65%); }
+    .kpi-panel.theme-green { background: linear-gradient(135deg, color-mix(in srgb, var(--green) 8%, var(--surface)), var(--surface) 65%); }
+    .kpi-panel.theme-orange { background: linear-gradient(135deg, color-mix(in srgb, var(--orange) 8%, var(--surface)), var(--surface) 65%); }
+    .kpi-panel.theme-teal { background: linear-gradient(135deg, color-mix(in srgb, var(--teal) 8%, var(--surface)), var(--surface) 65%); }
+    .kpi-panel.theme-yellow { background: linear-gradient(135deg, color-mix(in srgb, var(--yellow) 8%, var(--surface)), var(--surface) 65%); }
+
+    .kpi-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .kpi-title { color: var(--muted); font-size: 13px; font-weight: 780; margin: 0; }
+    .kpi-badge-pill { padding: 3px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 700; }
+    .kpi-icon-badge { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; color: #fff; }
+    .kpi-icon-badge.theme-blue { background: var(--blue); box-shadow: 0 4px 12px color-mix(in srgb, var(--blue) 40%, transparent); }
+    .kpi-icon-badge.theme-purple { background: var(--purple); box-shadow: 0 4px 12px color-mix(in srgb, var(--purple) 40%, transparent); }
+    .kpi-icon-badge.theme-green { background: var(--green); box-shadow: 0 4px 12px color-mix(in srgb, var(--green) 40%, transparent); }
+    .kpi-icon-badge.theme-orange { background: var(--orange); box-shadow: 0 4px 12px color-mix(in srgb, var(--orange) 40%, transparent); }
+    .kpi-icon-badge.theme-teal { background: var(--teal); box-shadow: 0 4px 12px color-mix(in srgb, var(--teal) 40%, transparent); }
+    .kpi-icon-badge.theme-yellow { background: var(--yellow); box-shadow: 0 4px 12px color-mix(in srgb, var(--yellow) 40%, transparent); }
+
+    .kpi-daily-list { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
+    .kpi-daily-item { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+    .kpi-daily-label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 700; }
+    .kpi-daily-label i { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; font-size: 11px; }
+    .kpi-daily-label .icon-blue { background: color-mix(in srgb, var(--blue) 12%, var(--surface)); color: var(--blue); }
+    .kpi-daily-label .icon-purple { background: color-mix(in srgb, var(--purple) 12%, var(--surface)); color: var(--purple); }
+    .kpi-daily-label .icon-orange { background: color-mix(in srgb, var(--orange) 12%, var(--surface)); color: var(--orange); }
+    .kpi-daily-val { font-size: 17px; font-weight: 850; font-variant-numeric: tabular-nums; }
+    .kpi-main-val { font-size: 30px; line-height: 1.1; font-weight: 900; font-variant-numeric: tabular-nums; margin: 4px 0 8px; }
+    .kpi-sub-info { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: 11px; font-weight: 700; margin-bottom: 12px; }
+    .kpi-sub-info .dot-success { color: var(--green); }
+    .kpi-sub-info .dot-failed { color: var(--red); }
+    .kpi-sub-info span::before { content: "●"; margin-right: 4px; font-size: 9px; }
+    .kpi-sub-info span.plain-item::before { display: none; }
+
+    .sparkline-box { width: 100%; height: 48px; border-radius: 12px; background: color-mix(in srgb, var(--card-theme, var(--blue)) 7%, var(--surface-2)); border: 0; overflow: hidden; padding: 0; }
+    .sparkline-svg { width: 100%; height: 100%; display: block; }
+
+    /* ---- 优化版趋势图：高级平滑动画与防溢出设计 ---- */
+    .trend-panel {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .trend-legend-interactive { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .legend-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 13px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 750;
+      cursor: pointer;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .legend-chip:hover { transform: translateY(-1.5px); border-color: var(--line-strong); background: var(--surface); }
+    .legend-chip:not(.is-active) { opacity: 0.4; filter: grayscale(0.9); background: var(--surface-3); text-decoration: line-through; }
+    .chip-circle { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+    .chart-host-interactive {
+      position: relative;
+      margin-top: 18px;
+      padding: 12px 10px 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--surface);
+      box-shadow: inset 0 2px 6px rgba(0,0,0,0.02);
+      overflow: hidden;
+    }
+
+    .trend-svg-large {
+      width: 100%;
+      height: 340px;
+      display: block;
+      overflow: visible;
+    }
+    .trend-svg-large text {
+      stroke: none !important;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-weight: 500;
+    }
+
+    .chart-grid-line { stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 4; opacity: 0.4; }
+    .chart-zero-line { stroke: var(--line-strong); stroke-width: 1.2; opacity: 0.6; }
+    .chart-right-label { fill: #7738ee; font-size: 11px; text-anchor: start; }
+    .chart-left-label { fill: var(--muted); font-size: 11px; text-anchor: end; }
+    .chart-x-label { fill: var(--muted); font-size: 11px; text-anchor: middle; }
+    .active-hover-dot { filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.25)); transition: cx 0.05s ease-out, cy 0.05s ease-out; }
+
+    /* SVG 动感平滑 Draw 动画 */
+    @keyframes lineDraw {
+      from { stroke-dashoffset: 2400; }
+      to { stroke-dashoffset: 0; }
+    }
+    .animated-line {
+      stroke-dasharray: 2400;
+      stroke-dashoffset: 0;
+      animation: lineDraw 1.1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      transition: stroke 0.3s ease, opacity 0.3s ease;
+    }
+    
+    .animated-area {
+      transition: opacity 0.4s ease;
+      animation: areaFadeIn 0.8s ease-out forwards;
+    }
+    @keyframes areaFadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .trend-dot {
+      transition: r 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), fill 0.2s ease, transform 0.2s ease;
+      cursor: pointer;
+    }
+    .trend-dot:hover { r: 6.5; fill: var(--surface); }
+
+    .chart-crosshair { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 4; opacity: 0.7; transition: opacity 0.15s ease; }
+
+    /* 改进的高级悬浮黑金 Tooltip 弹窗 */
+    .trend-tooltip-popup {
+      position: fixed;
+      z-index: 150;
+      pointer-events: none;
+      min-width: 235px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(22, 24, 30, 0.95);
+      backdrop-filter: blur(12px);
+      color: #ffffff;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), 0 2px 12px rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      font-size: 12px;
+      transition: opacity 0.16s ease;
+      transform: translate(-50%, -100%) translateY(-16px);
+    }
+    .tt-header { font-weight: 850; font-size: 13px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.14); color: #f8fafc; }
+    .tt-body { display: flex; flex-direction: column; gap: 6px; }
+    .tt-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; color: #cbd5e1; font-size: 12px; }
+    .tt-row-left { display: flex; align-items: center; gap: 7px; }
+    .tt-box { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+    .tt-row strong { color: #ffffff; font-weight: 850; font-variant-numeric: tabular-nums; }
+    .tt-footer { margin-top: 10px; padding-top: 7px; border-top: 1px solid rgba(255, 255, 255, 0.14); font-size: 11px; color: #94a3b8; white-space: nowrap; }
+    .tt-footer strong { color: #38bdf8; font-weight: 850; }
+
+    .overview-grid { margin-top: 16px; display: grid; grid-template-columns: 1fr; gap: 16px; }
+    .panel, .table-section, .settings-band, .filter-bar { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-md); }
+    .panel { min-width: 0; padding: 22px; }
+    .panel-head, .section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+    .panel-head h2, .section-head h2, .settings-band h2 { margin: 0; font-size: 15px; line-height: 1.3; font-weight: 850; }
+    .panel-head p, .section-head p, .settings-band p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .health-panel { padding: 26px; }
+    .health-panel-head { align-items: center; }
+    .health-summary { display: flex; align-items: baseline; justify-content: flex-end; flex-wrap: wrap; gap: 18px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .health-summary strong { margin-left: 5px; color: var(--text); font-size: 21px; font-weight: 850; font-variant-numeric: tabular-nums; }
+    .health-summary .health-success, .health-summary .health-success strong { color: var(--green); }
+    .health-summary .health-failure, .health-summary .health-failure strong { color: var(--red); }
+    .health-grid { width: 100%; margin-top: 22px; padding: 2px 0 8px; display: grid; gap: 4px; overflow-x: auto; scrollbar-width: thin; }
+    .health-row { min-width: 980px; display: grid; grid-template-columns: 30px minmax(920px, 1fr); align-items: center; gap: 10px; }
+    .health-date { color: var(--muted); font-size: 10px; font-weight: 720; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .health-cells { min-width: 0; display: grid; grid-template-columns: repeat(96, minmax(6px, 1fr)); gap: 3px; }
+    .health-cell { width: 100%; min-width: 0; aspect-ratio: 1; border-radius: 3px; background: var(--surface-3); transition: opacity .14s ease, transform .14s ease; }
+    .health-cell:hover { z-index: 1; opacity: .8; transform: scale(1.35); }
+    .health-cell.level-1 { background: #ef4444; }
+    .health-cell.level-2 { background: #f97316; }
+    .health-cell.level-3 { background: #facc15; }
+    .health-cell.level-4 { background: #84cc16; }
+    .health-cell.level-5 { background: #22c55e; }
+    .health-scale { margin-top: 14px; display: flex; align-items: center; justify-content: flex-start; gap: 6px; color: var(--muted); font-size: 10px; }
+    .health-scale i { width: 13px; height: 13px; border-radius: 3px; background: var(--surface-3); }
+    .health-scale em { margin-left: 5px; font-style: normal; }
+
+    .runtime-strip { margin-top: 16px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
+    .runtime-item, .interface-summary .metric { min-width: 0; min-height: 82px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-sm); }
+    .runtime-item span, .metric span { display: block; overflow: hidden; color: var(--muted); font-size: 11px; font-weight: 730; white-space: nowrap; text-overflow: ellipsis; }
+    .runtime-item strong, .metric strong { display: block; margin-top: 8px; overflow-wrap: anywhere; font-size: 16px; font-weight: 850; font-variant-numeric: tabular-nums; }
+
+    .distribution-grid { display: grid; grid-template-columns: repeat(4, minmax(210px, 1fr)); gap: 14px; }
+    .distribution-card { min-width: 0; min-height: 276px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-md); transition: transform .2s cubic-bezier(.4, 0, .2, 1), box-shadow .2s ease; }
+    .distribution-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+    .distribution-card h2 { margin: 0; font-size: 14px; font-weight: 850; }
+    .donut-layout { margin-top: 22px; display: grid; grid-template-columns: 108px minmax(0, 1fr); align-items: center; gap: 18px; }
+    .donut { width: 108px; height: 108px; transform: rotate(-90deg); }
+    .donut-track { fill: none; stroke: var(--surface-3); stroke-width: 12; }
+    .donut-segment { fill: none; stroke-width: 12; stroke-linecap: butt; }
+    .distribution-list { min-width: 0; display: grid; gap: 11px; }
+    .distribution-row { min-width: 0; display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+    .distribution-row i { width: 8px; height: 8px; border-radius: 3px; }
+    .distribution-row span { overflow: hidden; color: var(--muted); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
+    .distribution-row strong { font-size: 11px; font-variant-numeric: tabular-nums; }
+    .token-panel { margin-top: 16px; }
+    #token-total { color: var(--purple); font-size: 25px; font-weight: 850; }
+    #token-composition { margin-top: 20px; }
+    .token-stack { height: 42px; display: flex; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+    .token-stack span { min-width: 2px; height: 100%; }
+    .token-legend { margin-top: 14px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--line); }
+    .token-legend-item { min-width: 0; padding: 14px; border-top: 3px solid; background: var(--surface); }
+    .token-legend-item span { display: block; overflow: hidden; color: var(--muted); font-size: 10px; white-space: nowrap; text-overflow: ellipsis; }
+    .token-legend-item strong { display: block; margin-top: 6px; overflow-wrap: anywhere; font-size: 14px; }
+
+    .table-section { margin-top: 16px; overflow: hidden; }
+    .section-head { min-height: 78px; padding: 20px 22px; border-bottom: 1px solid var(--line); }
+    .table-wrap { width: 100%; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; table-layout: auto; }
+    .event-table { min-width: 1560px; }
+    .event-table th:nth-child(n+6), .event-table td:nth-child(n+6) { text-align: right; }
+    .event-table th:first-child { width: 150px; }
+    .event-table th:nth-child(2) { width: 200px; }
+    .event-table th:nth-child(3) { width: 100px; }
+    .event-table th:nth-child(4) { width: 180px; }
+    .event-table th:nth-child(5) { width: 110px; }
+    .event-table th:nth-child(4) { width: 130px; }
+    .price-table { min-width: 850px; }
+    th, td { padding: 15px 20px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+    th { color: var(--muted); background: var(--surface-2); font-size: 10px; font-weight: 820; text-transform: uppercase; white-space: nowrap; }
+    td { min-width: 100px; font-size: 12px; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr { transition: background .14s ease; }
+    tbody tr:hover { background: color-mix(in srgb, var(--blue) 4%, var(--surface)); }
+    .cell-main { display: block; max-width: 320px; overflow: hidden; color: var(--text); font-weight: 760; white-space: nowrap; text-overflow: ellipsis; }
+    .cell-sub { display: block; max-width: 360px; margin-top: 5px; overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; }
+    .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+    .status-badge { display: inline-flex; align-items: center; min-height: 25px; padding: 0 9px; border-radius: 999px; background: color-mix(in srgb, var(--green) 12%, var(--surface)); color: var(--green); font-size: 10px; font-weight: 820; white-space: nowrap; }
+    .status-badge.is-failure { background: color-mix(in srgb, var(--red) 12%, var(--surface)); color: var(--red); }
+    .row-button { max-width: 300px; padding: 0; overflow: hidden; border: 0; background: transparent; color: var(--blue); font-weight: 780; white-space: nowrap; text-overflow: ellipsis; }
+
+    .interface-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .interface-summary .metric { min-height: 110px; padding: 22px; }
+    .interface-summary .metric strong { margin-top: 16px; font-size: 26px; }
+    .filter-bar { padding: 16px; display: grid; grid-template-columns: minmax(190px, 1.5fr) repeat(3, minmax(120px, .7fr)) auto auto auto; gap: 10px; align-items: end; }
+    label { min-width: 0; display: grid; gap: 7px; color: var(--muted); font-size: 10px; font-weight: 760; }
+    input, select { width: 100%; height: 40px; min-width: 0; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; outline: none; background: var(--surface-2); color: var(--text); }
+    input:focus, select:focus { border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 15%, transparent); }
+    .primary-button, .secondary-button { min-height: 40px; padding: 0 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 11px; font-size: 11px; font-weight: 820; white-space: nowrap; }
+    .primary-button { border: 1px solid var(--text); background: var(--text); color: var(--surface); box-shadow: var(--shadow-sm); }
+    .primary-button:hover { opacity: .9; }
+    .secondary-button { border: 1px solid var(--line); background: var(--surface); color: var(--text); }
+    .secondary-button:hover { border-color: var(--line-strong); background: var(--surface-2); }
+    .pagination { min-height: 66px; padding: 10px 18px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; border-top: 1px solid var(--line); }
+    .pagination .icon-button { width: 36px; height: 36px; flex-basis: 36px; border-radius: 10px; box-shadow: none; }
+
+    .settings-band { min-width: 0; margin-bottom: 16px; padding: 22px; display: flex; align-items: center; justify-content: space-between; gap: 22px; }
+    .settings-title { min-width: 220px; display: flex; align-items: center; gap: 14px; }
+    .settings-title > svg { width: 38px; height: 38px; padding: 99px; border-radius: 11px; background: color-mix(in srgb, var(--blue) 10%, var(--surface)); color: var(--blue); }
+    .settings-title p { max-width: 360px; overflow-wrap: anywhere; }
+    .storage-metrics { min-width: 380px; display: grid; grid-template-columns: repeat(4, minmax(80px, 1fr)); gap: 12px; }
+    .inline-form { display: flex; align-items: end; gap: 10px; }
+    .inline-form label { width: 120px; }
+    .price-section { margin-top: 0; }
+    .price-table input { min-width: 104px; }
+    .command-group { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+    .detail-drawer { position: fixed; top: 24px; right: 24px; bottom: 24px; z-index: 60; width: min(480px, calc(100vw - 48px)); padding: 24px; overflow: auto; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); box-shadow: var(--shadow-lg); transform: translateX(calc(100% + 48px)); transition: transform .22s ease; }
+    .detail-drawer.is-open { transform: translateX(0); }
+    .drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+    .drawer-head small { color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .drawer-head h2 { margin: 7px 0 0; overflow-wrap: anywhere; font-size: 21px; }
+    .drawer-scrim { position: fixed; inset: 0; z-index: 55; visibility: hidden; background: rgba(14, 16, 20, .34); opacity: 0; backdrop-filter: blur(3px); transition: opacity .18s ease, visibility .18s ease; }
+    .drawer-scrim.is-open { visibility: visible; opacity: 1; }
+    .toast-region { position: fixed; right: 28px; bottom: 28px; z-index: 80; display: grid; gap: 8px; }
+    .toast { max-width: min(360px, calc(100vw - 40px)); padding: 12px 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-lg); font-size: 12px; }
+    .toast.is-error { border-color: color-mix(in srgb, var(--red) 45%, var(--line)); color: var(--red); }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes page-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+    @media (max-width: 1320px) {
+      .sidebar { grid-template-columns: auto 1fr auto; gap: 16px; }
+      .kpi-row-top { grid-template-columns: 1fr; }
+      .kpi-row-bottom { grid-template-columns: repeat(2, 1fr); }
+      .distribution-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .filter-bar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .interface-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    /* 通用高级悬浮 Tooltip 弹窗 */
+    .floating-glass-tooltip {
+      position: fixed;
+      z-index: 120;
+      pointer-events: none;
+      min-width: 190px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: rgba(18, 20, 26, 0.94);
+      backdrop-filter: blur(12px);
+      color: #ffffff;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      font-size: 12px;
+      opacity: 0;
+      transform: translate(-50%, -100%) translateY(-10px);
+      transition: opacity 0.15s ease, transform 0.15s ease, left 0.05s ease-out, top 0.05s ease-out;
+    }
+    .floating-glass-tooltip.is-visible {
+      opacity: 1;
+      transform: translate(-50%, -100%) translateY(-14px);
+    }
+    .fgt-title { font-weight: 800; font-size: 12px; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.12); color: #f8fafc; }
+    .fgt-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; color: #cbd5e1; margin-top: 3px; }
+    .fgt-row strong { color: #ffffff; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+    /* 环形图中心文本与高亮联动 */
+    .donut-wrapper { position: relative; width: 108px; height: 108px; }
+    .donut-center-text {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      text-align: center;
+      padding: 4px;
+    }
+    .dct-name { font-size: 10px; color: var(--muted); font-weight: 750; max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 0.15s ease; }
+    .dct-val { font-size: 13px; font-weight: 850; color: var(--text); font-variant-numeric: tabular-nums; }
+
+    .donut-segment { cursor: pointer; transition: stroke-width 0.2s ease, opacity 0.2s ease, filter 0.2s ease; }
+    .donut-segment:hover, .donut-segment.is-active { stroke-width: 15; filter: drop-shadow(0 0 6px rgba(50, 111, 245, 0.45)); }
+    .distribution-row { padding: 3px 6px; border-radius: 6px; cursor: pointer; transition: background 0.15s ease, transform 0.15s ease, opacity 0.15s ease; }
+    .distribution-row:hover, .distribution-row.is-active { background: var(--surface-2); transform: translateX(3px); }
+    .donut-layout.has-hover .donut-segment:not(.is-active) { opacity: 0.3; }
+    .donut-layout.has-hover .distribution-row:not(.is-active) { opacity: 0.4; }
+
+    /* 接口页面专有卡片与进度条 */
+    .interface-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+    .interface-card {
+      position: relative;
+      min-width: 0;
+      padding: 18px 20px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
+      transition: transform .2s ease, box-shadow .2s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .interface-card:hover { transform: translateY(-2.5px); box-shadow: var(--shadow-md); }
+    .interface-card.theme-blue { background: linear-gradient(135deg, color-mix(in srgb, var(--blue) 7%, var(--surface)), var(--surface) 70%); }
+    .interface-card.theme-purple { background: linear-gradient(135deg, color-mix(in srgb, var(--purple) 7%, var(--surface)), var(--surface) 70%); }
+    .interface-card.theme-green { background: linear-gradient(135deg, color-mix(in srgb, var(--green) 7%, var(--surface)), var(--surface) 70%); }
+    .interface-card.theme-orange { background: linear-gradient(135deg, color-mix(in srgb, var(--orange) 7%, var(--surface)), var(--surface) 70%); }
+
+    .ic-head { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 12px; font-weight: 750; }
+    .ic-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; background: var(--surface-2); border: 1px solid var(--line); color: var(--text); }
+    .ic-val { font-size: 24px; font-weight: 900; line-height: 1.1; margin-top: 12px; font-variant-numeric: tabular-nums; color: var(--text); }
+    .ic-val small { font-size: 12px; font-weight: 700; color: var(--muted); margin-left: 2px; }
+
+    .progress-cell { display: flex; flex-direction: column; gap: 5px; min-width: 130px; }
+    .progress-cell span { font-size: 12px; font-weight: 750; font-variant-numeric: tabular-nums; }
+    .progress-bar-bg { width: 100%; height: 5px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+    .progress-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+    .compact-btn { height: 32px; padding: 0 12px; font-size: 11px; gap: 5px; border-radius: 9px; }
+  </style>
+</head>
+<body>
+  <!-- SVG 精灵图定义 -->
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="i-layout-dashboard" viewBox="0 0 24 24"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 16 4-5 4 3 5-7"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m12 12 8.3-8.3"/><path d="m18 6 2 2"/><path d="m15 9 2 2"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.2a2 2 0 0 1-2 0l-.1-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.2.1a2 2 0 0 1 1 1.7v.5a2 2 0 0 1-1 1.7l-.2.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.1-.1a2 2 0 0 1 2 0l.4.2a2 2 0 0 1 1 1.7v.2a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.2a2 2 0 0 1 2 0l.1.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.2-.1a2 2 0 0 1-1-1.7v-.5a2 2 0 0 1 1-1.7l.2-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.1.1a2 2 0 0 1-2 0l-.4-.2a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7L20 8"/><path d="M20 3v5h-5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="m17 8-5-5-5 5"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.8Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 11v6M14 11v6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="m18 6-12 12M6 6l12 12"/></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+    <symbol id="i-diamond" viewBox="0 0 24 24"><path d="M6 3h12l4 6-10 12L2 9z"/><path d="M11 3 8 9l4 12 4-12-3-6z"/><path d="M2 9h20"/></symbol>
+    <symbol id="i-dollar" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></symbol>
+    <symbol id="i-percent" viewBox="0 0 24 24"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <symbol id="i-trend-up" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  </svg>
+
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">K</span>
+        <span><strong>用量 Keeper</strong><small>CLIProxyAPI 演示版</small></span>
+      </div>
+      <div class="nav-heading">工作区</div>
+      <nav class="primary-nav" aria-label="主要页面导航">
+        <button class="nav-item is-active" data-page-target="overview"><svg><use href="#i-layout-dashboard"/></svg><span>总览</span></button>
+        <button class="nav-item" data-page-target="interfaces"><svg><use href="#i-key"/></svg><span>接口</span></button>
+        <button class="nav-item" data-page-target="settings"><svg><use href="#i-settings"/></svg><span>设置</span></button>
+      </nav>
+      <div class="sidebar-status">
+        <span id="connection-dot" class="status-dot is-online"></span>
+        <span id="connection-label">示例演示中</span>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-heading">
+          <span class="topbar-kicker">KEEPER / USAGE</span>
+          <h1 id="page-title">总览</h1>
+          <p id="page-subtitle">运行状态与用量脉搏</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="topbar-state"><i id="topbar-state-dot" class="status-dot is-online"></i><span id="topbar-state-label">示例环境</span></span>
+          <div class="theme-switcher" id="theme-control" role="group" aria-label="主题切换">
+            <button data-theme="light">浅色</button><button data-theme="dark">深色</button><button data-theme="auto" class="is-active">自动</button>
+          </div>
+          <div class="segmented" id="range-control" aria-label="时间范围">
+            <button class="is-active" data-range="24h">24 小时</button><button data-range="7d">7 天</button><button data-range="30d">30 天</button><button data-range="all">全部</button>
+          </div>
+          <button id="refresh-button" class="icon-button" title="刷新示例数据" aria-label="刷新示例数据"><svg><use href="#i-refresh"/></svg></button>
+        </div>
+      </header>
+
+      <main id="main-content">
+        <!-- 1. 总览 Page -->
+        <section class="page is-active" data-page="overview">
+          <div class="kpi-section" id="overview-kpis"></div>
+
+          <!-- 优化后的用量趋势面板 (防溢出 + 极速平滑动画) -->
+          <div class="overview-grid">
+            <section class="panel trend-panel">
+              <div class="panel-head">
+                <div><h2>用量趋势</h2><p id="trend-caption">输入、输出、缓存与命中率多维度趋势对比</p></div>
+                <div class="trend-legend-interactive" id="trend-legend">
+                  <button class="legend-chip is-active" data-dim="input" style="--chip-color: #326ff5"><span class="chip-circle" style="background:#326ff5"></span><span>输入</span></button>
+                  <button class="legend-chip is-active" data-dim="output" style="--chip-color: #20b95a"><span class="chip-circle" style="background:#20b95a"></span><span>输出</span></button>
+                  <button class="legend-chip is-active" data-dim="cache_write" style="--chip-color: #ff7a12"><span class="chip-circle" style="background:#ff7a12"></span><span>缓存创建</span></button>
+                  <button class="legend-chip is-active" data-dim="cache_read" style="--chip-color: #18ad9d"><span class="chip-circle" style="background:#18ad9d"></span><span>缓存读取</span></button>
+                  <button class="legend-chip is-active" data-dim="hit_rate" style="--chip-color: #7738ee"><span class="chip-circle chip-dashed" style="background:#7738ee; border:2px dashed #7738ee"></span><span>缓存命中率</span></button>
+                </div>
+              </div>
+              <div id="trend-chart" class="chart-host-interactive"></div>
+            </section>
+
+            <section class="panel health-panel">
+              <div class="panel-head health-panel-head">
+                <div><h2>服务健康监测</h2><p>最近 5 天，15 分钟一个网格；绿色代表成功率高，红色代表失败较多。</p></div>
+                <div class="health-summary" aria-label="服务健康汇总">
+                  <span>成功率 <strong id="health-summary">--</strong></span>
+                  <span class="health-success">成功 <strong id="health-success-count">0</strong></span>
+                  <span class="health-failure">失败 <strong id="health-failure-count">0</strong></span>
+                </div>
+              </div>
+              <div id="health-grid" class="health-grid" aria-label="最近 5 天服务健康网格"></div>
+              <div class="health-scale"><span>异常</span><i class="level-1"></i><i class="level-2"></i><i class="level-3"></i><i class="level-4"></i><i class="level-5"></i><span>健康</span><em>灰色为无请求</em></div>
+            </section>
+          </div>
+
+          <div class="overview-section">
+            <div class="distribution-grid" id="distribution-grid"></div>
+            <section class="panel token-panel">
+              <div class="panel-head"><div><h2>Token 构成</h2><p>输入、输出、缓存与推理消耗</p></div><strong id="token-total">0</strong></div>
+              <div id="token-composition"></div>
+            </section>
+            <section class="table-section">
+              <div class="section-head"><div><h2>模型统计</h2><p>请求质量、消耗与成本</p></div></div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th scope="col">模型</th><th scope="col">请求</th><th scope="col">成功率</th><th scope="col">Token</th><th scope="col">平均延迟</th><th scope="col">费用</th></tr></thead>
+                  <tbody id="model-table"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <div class="runtime-strip" id="runtime-strip"></div>
+
+          <!-- 整合后的请求明细记录 -->
+          <div class="overview-section" style="margin-top: 24px;">
+            <form class="filter-bar" id="event-filters" aria-label="请求明细筛选">
+            <label><span>搜索</span><input name="q" type="search" placeholder="输入模型、渠道或关键字"></label>
+            <label><span>Provider</span><select name="provider"><option value="">全部</option></select></label>
+            <label><span>模型</span><select name="model"><option value="">全部</option></select></label>
+            <label><span>状态</span><select name="status"><option value="">全部</option><option value="success">成功</option><option value="failure">失败</option></select></label>
+            <button class="primary-button" type="submit">筛选</button>
+            <button class="secondary-button" type="reset" id="event-reset">重置</button>
+            <button class="secondary-button" id="event-export" type="button"><svg><use href="#i-download"/></svg>导出 CSV</button>
+          </form>
+          <section class="table-section event-table-section">
+            <div class="section-head"><div><h2>请求明细记录</h2><p id="event-count">0 条记录</p></div></div>
+            <div class="table-wrap">
+              <table class="event-table">
+                <thead><tr><th scope="col">时间</th><th scope="col">模型 / 渠道</th><th scope="col">推理强度</th><th scope="col">端点</th><th scope="col">状态</th><th scope="col">用时 / 首字</th><th scope="col">非缓存输入</th><th scope="col">输出</th><th scope="col">思考</th><th scope="col">缓存命中</th><th scope="col">缓存创建</th><th scope="col">总 Token</th></tr></thead>
+                <tbody id="event-table"></tbody>
+              </table>
+            </div>
+            <div class="pagination">
+              <button id="page-prev" class="icon-button" title="上一页" aria-label="上一页"><svg><use href="#i-chevron-left"/></svg></button>
+              <span id="page-label">第 1 页</span>
+              <button id="page-next" class="icon-button" title="下一页" aria-label="下一页"><svg><use href="#i-chevron-right"/></svg></button>
+            </div>
+            </div>
+          </section>
+          </div>
+        </section>
+
+        <!-- 3. 接口 Page -->
+        <section class="page" data-page="interfaces">
+          <div class="interface-summary" id="interface-summary"></div>
+          <section class="table-section">
+            <div class="section-head"><div><h2>客户端 Key 分组</h2><p>匿名客户端调用分组汇总与负载占比</p></div></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th scope="col">客户端 Key</th><th scope="col">绑定模型</th><th scope="col">调用次数与占比</th><th scope="col">成功率</th><th scope="col">Token</th><th scope="col">预估费用</th></tr></thead>
+                <tbody id="api-key-table"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="table-section">
+            <div class="section-head"><div><h2>上游统计</h2><p>匿名 Provider 凭证分组与健康监控</p></div></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th scope="col">上游分组名称</th><th scope="col">状态</th><th scope="col">关联模型</th><th scope="col">负载请求占比</th><th scope="col">成功率</th><th scope="col">平均延迟</th><th scope="col">Token</th><th scope="col">操作</th></tr></thead>
+                <tbody id="upstream-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <!-- 4. 设置 Page -->
+        <section class="page" data-page="settings">
+          <section class="settings-band">
+            <div class="settings-title"><svg><use href="#i-database"/></svg><div><h2>存储状态</h2><p id="storage-path">SQLite 本地存储</p></div></div>
+            <div class="storage-metrics" id="storage-metrics"></div>
+            <form id="storage-settings" class="inline-form">
+              <label><span>保留天数</span><input name="retention_days" type="number" min="1" max="3650" value="30"></label>
+              <label><span>导出上限</span><input name="export_max_records" type="number" min="100" max="1000000" value="50000"></label>
+              <button class="primary-button" type="submit"><svg><use href="#i-save"/></svg>保存</button>
+            </form>
+          </section>
+
+          <section class="table-section price-section">
+            <div class="section-head">
+              <div><h2>模型价格设置</h2><p>USD / 1M Token</p></div>
+              <div class="command-group">
+                <button id="add-price" class="secondary-button"><svg><use href="#i-plus"/></svg>添加模型</button>
+                <button id="save-prices" class="primary-button"><svg><use href="#i-save"/></svg>保存价格表</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="price-table">
+                <thead><tr><th scope="col">模型</th><th scope="col">输入 ($)</th><th scope="col">输出 ($)</th><th scope="col">缓存读取 ($)</th><th scope="col">缓存写入 ($)</th><th scope="col">推理 ($)</th><th scope="col">操作</th></tr></thead>
+                <tbody id="price-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <aside id="detail-drawer" class="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="detail-title" aria-hidden="true">
+    <div class="drawer-head">
+      <div><small>上游详情</small><h2 id="detail-title">--</h2></div>
+      <button id="detail-close" class="icon-button" aria-label="关闭详情"><svg><use href="#i-x"/></svg></button>
+    </div>
+    <div id="detail-content"></div>
+  </aside>
+  <div id="drawer-scrim" class="drawer-scrim"></div>
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  <div id="floating-tooltip" class="floating-glass-tooltip"></div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const HEALTH_DAYS = 5;
+      const HEALTH_SLOTS_PER_DAY = 96;
+      const COLORS = ['var(--blue)', 'var(--purple)', 'var(--green)', 'var(--orange)', 'var(--teal)', 'var(--red)'];
+      
+      const pageMeta = {
+        overview: ['总览', '运行状态与用量脉搏'],
+        interfaces: ['接口', '客户端与上游调用结构'],
+        settings: ['设置', '价格、存储与数据迁移'],
+      };
+
+      const state = {
+        page: 'overview',
+        range: '24h',
+        theme: readTheme(),
+        loading: false,
+        trendActiveDims: {
+          input: true,
+          output: true,
+          cache_write: true,
+          cache_read: true,
+          hit_rate: true
+        }
+      };
+
+      const baseTime = Date.now() - 24 * 3600 * 1000;
+      const MOCK_TREND_POINTS = Array.from({ length: 16 }, (_, i) => {
+        const timeMs = baseTime + i * 90 * 60 * 1000;
+        const cacheRead = Math.floor(1200000 + Math.max(0, Math.sin(i / 1.6)) * 3800000 + Math.random() * 600000);
+        const cacheWrite = i === 4 || i === 9 ? Math.floor(200000 + Math.random() * 800000) : 0;
+        const input = Math.floor(70000 + Math.sin(i / 2) * 50000 + Math.random() * 15000);
+        const output = Math.floor(18000 + Math.sin(i / 2.8) * 12000 + Math.random() * 4000);
+        const hitRate = Math.min(0.995, Math.max(0.68, 0.96 + Math.sin(i / 2) * 0.15 + (Math.random() - 0.5) * 0.05));
+        const actualCost = (cacheRead * 0.0003 + input * 0.0025 + output * 0.01) / 1000;
+        const standardCost = actualCost * (1 / (1 - hitRate * 0.8));
+
+        return {
+          timestamp_ms: timeMs,
+          input: input,
+          output: output,
+          cache_write: cacheWrite,
+          cache_read: cacheRead,
+          hit_rate: hitRate,
+          actual_cost: actualCost,
+          standard_cost: standardCost
+        };
+      });
+
+      const MOCK_DATA = {
+        summary: {
+          kpi: {
+            requests: 38603,
+            successes: 38463,
+            failures: 140,
+            success_rate: 0.9964,
+            total_tokens: 5200000000,
+            cost_usd: 4122.81,
+            avg_requests_daily: 5510,
+            avg_tokens_daily: 742760000,
+            avg_cost_daily: 588.97,
+            rpm: 3.83,
+            tpm: 515808,
+            cache_rate: 0.9511,
+            cache_read_tokens: 4930000000,
+            cache_write_tokens: 0,
+            reasoning_tokens: 8430000,
+            input_tokens: 5180000000
+          },
+          trend: MOCK_TREND_POINTS,
+          health: Array.from({ length: HEALTH_DAYS * HEALTH_SLOTS_PER_DAY }, (_, i) => {
+            const isFail = Math.random() < 0.04;
+            const reqs = Math.floor(Math.random() * 150) + 10;
+            const fails = isFail ? Math.floor(reqs * (0.05 + Math.random() * 0.2)) : 0;
+            return { timestamp_ms: Date.now() - (HEALTH_DAYS * HEALTH_SLOTS_PER_DAY - i) * 15 * 60 * 1000, requests: reqs, failures: fails };
+          }),
+          runtime: {
+            queue_depth: 8, queue_capacity: 4096, accepted: 38603, written: 38603, dropped: 0, last_batch_ms: 1.15,
+            storage: { path: "data/usage-statistics.db", database_bytes: 28400000, event_count: 38603, rollup_count: 480 }
+          }
+        },
+        analysis: {
+          distributions: {
+            models: [{ name: 'gpt-4o', requests: 18200 }, { name: 'claude-3-5-sonnet', requests: 12400 }, { name: 'deepseek-v3', requests: 4800 }, { name: 'gemini-1.5-pro', requests: 3203 }],
+            providers: [{ name: 'OpenAI 官方通道', requests: 21400 }, { name: 'Anthropic Direct', requests: 12400 }, { name: 'DeepSeek API', requests: 4803 }],
+            api_keys: [{ name: 'sk-prod-backend', requests: 24500 }, { name: 'sk-dev-team', requests: 9100 }, { name: 'sk-agent-cluster', requests: 5003 }],
+            sources: [{ name: 'Web Copilot', requests: 20100 }, { name: 'VSCode Extension', requests: 12500 }, { name: 'CLI Tool', requests: 6003 }]
+          },
+          tokens: { total: 5200000000, input: 5180000000, output: 20000000, cache_read: 4930000000, cache_write: 0, reasoning: 8430000 },
+          models: [
+            { name: 'gpt-4o', requests: 18200, success_rate: 0.998, total_tokens: 2800000000, avg_latency_ms: 1050, cost_usd: 2450.20 },
+            { name: 'claude-3-5-sonnet', requests: 12400, success_rate: 0.992, total_tokens: 1800000000, avg_latency_ms: 1280, cost_usd: 1420.50 },
+            { name: 'deepseek-v3', requests: 4800, success_rate: 0.985, total_tokens: 450000000, avg_latency_ms: 820, cost_usd: 185.10 },
+            { name: 'gemini-1.5-pro', requests: 3203, success_rate: 0.999, total_tokens: 150000000, avg_latency_ms: 910, cost_usd: 67.01 }
+          ]
+        },
+        interfaces: {
+          api_keys: [
+            { name: 'sk-prod-backend', models: 4, requests: 24500, success_rate: 0.998, total_tokens: 3400000000, cost_usd: 2650.00 },
+            { name: 'sk-dev-team', models: 3, requests: 9100, success_rate: 0.991, total_tokens: 1200000000, cost_usd: 980.50 },
+            { name: 'sk-agent-cluster', models: 2, requests: 5003, success_rate: 0.988, total_tokens: 600000000, cost_usd: 492.31 }
+          ],
+          upstreams: [
+            { key: 'openai-official', name: 'OpenAI 官方通道', models: 2, requests: 21400, success_rate: 0.998, avg_latency_ms: 1050, total_tokens: 2950000000 },
+            { key: 'anthropic-direct', name: 'Anthropic Direct', models: 1, requests: 12400, success_rate: 0.992, avg_latency_ms: 1280, total_tokens: 1800000000 },
+            { key: 'deepseek-api', name: 'DeepSeek API', models: 1, requests: 4803, success_rate: 0.985, avg_latency_ms: 820, total_tokens: 450000000 }
+          ]
+        },
+        events: {
+          total: 38603, page: 1, pages: 1545,
+          events: [
+            { timestamp_ms: Date.now() - 5000, model: 'gpt-4o', upstream_label: 'OpenAI 官方通道', reasoning_effort: 'high', endpoint: '/v1/chat/completions', failed: false, latency_ms: 980, ttft_ms: 280, input_tokens: 12500, output_tokens: 380, reasoning_tokens: 0, cache_read_tokens: 11800, cache_creation_tokens: 0, total_tokens: 12880 },
+            { timestamp_ms: Date.now() - 18000, model: 'claude-3-5-sonnet', upstream_label: 'Anthropic Direct', reasoning_effort: 'medium', endpoint: '/v1/messages', failed: false, latency_ms: 1420, ttft_ms: 390, input_tokens: 18400, output_tokens: 950, reasoning_tokens: 0, cache_read_tokens: 16000, cache_creation_tokens: 0, total_tokens: 19350 },
+            { timestamp_ms: Date.now() - 42000, model: 'deepseek-v3', upstream_label: 'DeepSeek API', reasoning_effort: 'low', endpoint: '/v1/chat/completions', failed: false, latency_ms: 780, ttft_ms: 190, input_tokens: 6200, output_tokens: 1100, reasoning_tokens: 450, cache_read_tokens: 5800, cache_creation_tokens: 0, total_tokens: 7300 },
+            { timestamp_ms: Date.now() - 85000, model: 'gpt-4o', upstream_label: 'OpenAI 官方通道', reasoning_effort: '-', endpoint: '/v1/responses', failed: true, status_code: 429, failure: 'Rate limit exceeded: TPM limit', latency_ms: 120, ttft_ms: 0, input_tokens: 800, output_tokens: 0, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 800 }
+          ]
+        },
+        prices: [
+          { model: 'gpt-4o', input_per_million: 2.50, output_per_million: 10.00, cache_read_per_million: 1.25, cache_write_per_million: 2.50, reasoning_per_million: 0.00 },
+          { model: 'claude-3-5-sonnet', input_per_million: 3.00, output_per_million: 15.00, cache_read_per_million: 0.30, cache_write_per_million: 3.75, reasoning_per_million: 0.00 },
+          { model: 'deepseek-v3', input_per_million: 0.14, output_per_million: 0.28, cache_read_per_million: 0.014, cache_write_per_million: 0.14, reasoning_per_million: 0.28 }
+        ]
+      };
+
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+      const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+      const number = new Intl.NumberFormat('zh-CN');
+      const compact = new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 2 });
+      const money = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 3 });
+
+      document.addEventListener('DOMContentLoaded', init);
+
+      function init() {
+        bindTheme();
+        bindNavigation();
+        bindRange();
+        bindEvents();
+        bindSettings();
+        bindDrawer();
+        bindTrendInteractiveLegend();
+        bindHealthInteractivity();
+        bindDistributionInteractivity();
+        loadActivePage();
+      }
+
+      function bindTheme() {
+        applyTheme(state.theme);
+        $$('#theme-control button').forEach((button) => button.addEventListener('click', () => {
+          state.theme = button.dataset.theme || 'auto';
+          applyTheme(state.theme);
+        }));
+      }
+
+      function applyTheme(theme) {
+        const explicit = theme === 'light' || theme === 'dark' ? theme : '';
+        if (explicit) document.documentElement.dataset.theme = explicit;
+        else delete document.documentElement.dataset.theme;
+        $$('#theme-control button').forEach((button) => {
+          const active = button.dataset.theme === theme;
+          button.classList.toggle('is-active', active);
+          button.setAttribute('aria-pressed', String(active));
+        });
+      }
+
+      function bindNavigation() {
+        $$('.nav-item').forEach((button) => button.addEventListener('click', () => {
+          const page = button.dataset.pageTarget;
+          if (!pageMeta[page] || page === state.page) return;
+          state.page = page;
+          $$('.nav-item').forEach((item) => item.classList.toggle('is-active', item === button));
+          $$('.page').forEach((item) => item.classList.toggle('is-active', item.dataset.page === page));
+          $('#page-title').textContent = pageMeta[page][0];
+          $('#page-subtitle').textContent = pageMeta[page][1];
+          $('#range-control').hidden = page === 'settings';
+          closeDrawer();
+          loadActivePage();
+        }));
+        $('#refresh-button').addEventListener('click', () => {
+          toast('刷新示例数据完成');
+          loadActivePage();
+        });
+      }
+
+      function bindRange() {
+        $$('#range-control button').forEach((button) => button.addEventListener('click', () => {
+          state.range = button.dataset.range;
+          $$('#range-control button').forEach((item) => item.classList.toggle('is-active', item === button));
+          loadActivePage();
+        }));
+      }
+
+      function bindEvents() {
+        $('#event-filters').addEventListener('submit', (e) => {
+          e.preventDefault();
+          toast('已应用筛选规则（示例）');
+        });
+        $('#event-reset').addEventListener('click', () => {
+          $('#event-filters').reset();
+          toast('重置筛选完成');
+        });
+        $('#event-export').addEventListener('click', () => toast('示例导出文件已生成 CSV'));
+      }
+
+      function bindSettings() {
+        $('#add-price').addEventListener('click', () => appendPriceRow({}));
+        $('#save-prices').addEventListener('click', () => toast('模型价格表已保存'));
+      }
+
+      function bindDrawer() {
+        $('#detail-close').addEventListener('click', closeDrawer);
+        $('#drawer-scrim').addEventListener('click', closeDrawer);
+        $('#upstream-table').addEventListener('click', (e) => {
+          const button = e.target.closest('[data-upstream]');
+          if (button) openUpstream(button.dataset.upstream);
+        });
+      }
+
+      function bindTrendInteractiveLegend() {
+        $('#trend-legend').addEventListener('click', (e) => {
+          const chip = e.target.closest('.legend-chip');
+          if (!chip) return;
+          const dim = chip.dataset.dim;
+          state.trendActiveDims[dim] = !state.trendActiveDims[dim];
+          chip.classList.toggle('is-active', state.trendActiveDims[dim]);
+          renderTrend(MOCK_DATA.summary.trend);
+        });
+      }
+
+      function bindHealthInteractivity() {
+        const grid = $('#health-grid');
+        const tooltip = $('#floating-tooltip');
+        if (!grid || !tooltip) return;
+
+        grid.addEventListener('mouseover', (e) => {
+          const cell = e.target.closest('.health-cell');
+          if (!cell) return;
+          const time = cell.dataset.time;
+          const reqs = cell.dataset.reqs;
+          const succs = cell.dataset.succs;
+          const fails = cell.dataset.fails;
+          const rate = cell.dataset.rate;
+
+          tooltip.innerHTML = `
+            <div class="fgt-title">⏱️ ${esc(time)}</div>
+            <div class="fgt-row"><span>总请求数</span><strong>${formatInt(reqs)} 次</strong></div>
+            <div class="fgt-row"><span>成功 / 失败</span><strong style="color:var(--green)">${formatInt(succs)}</strong> / <strong style="color:var(--red)">${formatInt(fails)}</strong></div>
+            <div class="fgt-row"><span>成功率</span><strong>${rate}</strong></div>
+          `;
+          tooltip.classList.add('is-visible');
+        });
+
+        grid.addEventListener('mousemove', (e) => {
+          tooltip.style.left = e.clientX + 'px';
+          tooltip.style.top = e.clientY + 'px';
+        });
+
+        grid.addEventListener('mouseleave', () => {
+          tooltip.classList.remove('is-visible');
+        });
+      }
+
+      function bindDistributionInteractivity() {
+        const container = $('#distribution-grid');
+        const tooltip = $('#floating-tooltip');
+        if (!container || !tooltip) return;
+
+        container.addEventListener('mouseover', (e) => {
+          const item = e.target.closest('.donut-segment, .distribution-row');
+          const card = e.target.closest('.distribution-card');
+          if (!item || !card) return;
+
+          const idx = item.dataset.idx;
+          const name = item.dataset.name;
+          const reqs = item.dataset.reqs;
+          const pct = item.dataset.pct;
+          const color = item.dataset.color;
+
+          const layout = card.querySelector('.donut-layout');
+          if (layout) {
+            layout.classList.add('has-hover');
+            layout.querySelectorAll('.donut-segment, .distribution-row').forEach(el => {
+              el.classList.toggle('is-active', el.dataset.idx === idx);
+            });
+            const nameEl = card.querySelector('.dct-name');
+            const valEl = card.querySelector('.dct-val');
+            if (nameEl) { nameEl.textContent = name; nameEl.style.color = color; }
+            if (valEl) { valEl.textContent = pct; }
+          }
+
+          tooltip.innerHTML = `
+            <div class="fgt-title" style="color:${color}">● ${esc(name)}</div>
+            <div class="fgt-row"><span>请求占比</span><strong>${pct}</strong></div>
+            <div class="fgt-row"><span>累计请求数</span><strong>${reqs} 次</strong></div>
+          `;
+          tooltip.classList.add('is-visible');
+        });
+
+        container.addEventListener('mousemove', (e) => {
+          tooltip.style.left = e.clientX + 'px';
+          tooltip.style.top = e.clientY + 'px';
+        });
+
+        container.addEventListener('mouseout', (e) => {
+          const card = e.target.closest('.distribution-card');
+          if (card && !card.contains(e.relatedTarget)) {
+            const layout = card.querySelector('.donut-layout');
+            if (layout) {
+              layout.classList.remove('has-hover');
+              layout.querySelectorAll('.donut-segment, .distribution-row').forEach(el => el.classList.remove('is-active'));
+              const nameEl = card.querySelector('.dct-name');
+              const valEl = card.querySelector('.dct-val');
+              if (nameEl) { nameEl.textContent = '占比率'; nameEl.style.color = 'var(--muted)'; }
+              if (valEl) { valEl.textContent = 'TOP 5'; }
+            }
+            tooltip.classList.remove('is-visible');
+          }
+        });
+      }
+
+      function loadActivePage() {
+        if (state.page === 'overview') loadOverview();
+        if (state.page === 'interfaces') loadInterfaces();
+        if (state.page === 'settings') loadSettings();
+      }
+
+      function loadOverview() {
+        renderKPIs(MOCK_DATA.summary.kpi);
+        renderTrend(MOCK_DATA.summary.trend);
+        renderHealth(MOCK_DATA.summary.health);
+        renderRuntime(MOCK_DATA.summary.runtime);
+        renderAnalysis(MOCK_DATA.analysis);
+        renderEvents(MOCK_DATA.events);
+      }
+
+      function makeSparkline(colorVar, seed = 1) {
+        const presets = [
+          [15, 22, 38, 42, 35, 28, 24, 30, 32, 29, 25, 22],
+          [20, 35, 45, 40, 28, 22, 25, 30, 38, 32, 28, 25],
+          [35, 42, 38, 25, 18, 15, 28, 35, 38, 30, 22, 18],
+          [10, 18, 32, 35, 28, 22, 20, 26, 30, 25, 20, 18],
+          [18, 32, 38, 30, 18, 12, 22, 36, 32, 24, 18, 14],
+          [22, 36, 42, 32, 24, 20, 28, 32, 26, 22, 18, 15]
+        ];
+        const points = presets[(seed - 1) % presets.length];
+        const width = 240, height = 40;
+        const max = Math.max(...points), min = Math.min(...points);
+        
+        const pathData = points.map((val, idx) => {
+          const x = (idx / (points.length - 1)) * width;
+          const y = height - 4 - ((val - min) / (max - min || 1)) * (height - 10);
+          return `${idx === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+        }).join(' ');
+        
+        const areaData = `${pathData} L ${width} ${height} L 0 ${height} Z`;
+        const gradId = `spark-grad-${seed}`;
+
+        return `<svg class="sparkline-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="${colorVar}" stop-opacity="0.38"/>
+              <stop offset="100%" stop-color="${colorVar}" stop-opacity="0.0"/>
+            </linearGradient>
+          </defs>
+          <path d="${areaData}" fill="url(#${gradId})" stroke="none" class="sparkline-area"/>
+          <path d="${pathData}" fill="none" stroke="${colorVar}" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>`;
+      }
+
+      function renderKPIs(kpi) {
+        const html = `
+          <div class="kpi-row-top">
+            <article class="kpi-panel">
+              <div class="kpi-header">
+                <h3 class="kpi-title">日均用量</h3>
+                <span class="kpi-badge-pill">统计范围 7 天</span>
+              </div>
+              <div class="kpi-daily-list">
+                <div class="kpi-daily-item">
+                  <span class="kpi-daily-label"><i class="icon-blue"><svg><use href="#i-activity"/></svg></i>日均请求</span>
+                  <strong class="kpi-daily-val">${formatCompact(kpi.avg_requests_daily)}</strong>
+                </div>
+                <div class="kpi-daily-item">
+                  <span class="kpi-daily-label"><i class="icon-purple"><svg><use href="#i-diamond"/></svg></i>日均 Token</span>
+                  <strong class="kpi-daily-val">${formatCompact(kpi.avg_tokens_daily)}</strong>
+                </div>
+                <div class="kpi-daily-item">
+                  <span class="kpi-daily-label"><i class="icon-orange"><svg><use href="#i-dollar"/></svg></i>日均费用</span>
+                  <strong class="kpi-daily-val">${formatMoney(kpi.avg_cost_daily)}</strong>
+                </div>
+              </div>
+            </article>
+
+            <article class="kpi-panel theme-blue">
+              <div class="kpi-header">
+                <h3 class="kpi-title">总请求数</h3>
+                <div class="kpi-icon-badge theme-blue"><svg><use href="#i-activity"/></svg></div>
+              </div>
+              <strong class="kpi-main-val">${formatInt(kpi.requests)}</strong>
+              <div class="kpi-sub-info">
+                <span class="dot-success">成功: ${formatInt(kpi.successes)}</span>
+                <span class="dot-failed">失败: ${formatInt(kpi.failures)}</span>
+                <span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span>
+              </div>
+              <div class="sparkline-box" style="--card-theme: var(--blue)">
+                ${makeSparkline('var(--blue)', 1)}
+              </div>
+            </article>
+
+            <article class="kpi-panel theme-purple">
+              <div class="kpi-header">
+                <h3 class="kpi-title">总 Token 消耗</h3>
+                <div class="kpi-icon-badge theme-purple"><svg><use href="#i-diamond"/></svg></div>
+              </div>
+              <strong class="kpi-main-val">${formatCompact(kpi.total_tokens)}</strong>
+              <div class="kpi-sub-info">
+                <span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span>
+                <span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span>
+                <span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span>
+              </div>
+              <div class="sparkline-box" style="--card-theme: var(--purple)">
+                ${makeSparkline('var(--purple)', 2)}
+              </div>
+            </article>
+          </div>
+
+          <div class="kpi-row-bottom">
+            <article class="kpi-panel theme-green">
+              <div class="kpi-header">
+                <h3 class="kpi-title">RPM (每分钟请求)</h3>
+                <div class="kpi-icon-badge theme-green"><svg><use href="#i-clock"/></svg></div>
+              </div>
+              <strong class="kpi-main-val">${formatNumber(kpi.rpm, 2)}</strong>
+              <div class="kpi-sub-info">
+                <span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span>
+              </div>
+              <div class="sparkline-box" style="--card-theme: var(--green)">
+                ${makeSparkline('var(--green)', 3)}
+              </div>
+            </article>
+
+            <article class="kpi-panel theme-orange">
+              <div class="kpi-header">
+                <h3 class="kpi-title">TPM (每分钟 Token)</h3>
+                <div class="kpi-icon-badge theme-orange"><svg><use href="#i-trend-up"/></svg></div>
+              </div>
+              <strong class="kpi-main-val">${formatInt(kpi.tpm)}</strong>
+              <div class="kpi-sub-info">
+                <span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span>
+              </div>
+              <div class="sparkline-box" style="--card-theme: var(--orange)">
+                ${makeSparkline('var(--orange)', 4)}
+              </div>
+            </article>
+
+            <article class="kpi-panel theme-teal">
+              <div class="kpi-header">
+                <h3 class="kpi-title">缓存命中率</h3>
+                <div class="kpi-icon-badge theme-teal"><svg><use href="#i-percent"/></svg></div>
+              </div>
+              <strong class="kpi-main-val">${formatPercent(kpi.cache_rate)}</strong>
+              <div class="kpi-sub-info">
+                <span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span>
+                <span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span>
+              </div>
+              <div class="sparkline-box" style="--card-theme: var(--teal)">
+                ${makeSparkline('var(--teal)', 5)}
+              </div>
+            </article>
+
+            <article class="kpi-panel theme-yellow">
+              <div class="kpi-header">
+                <h3 class="kpi-title">总费用</h3>
+                <div class="kpi-icon-badge theme-yellow"><svg><use href="#i-dollar"/></svg></div>
+              </div>
+              <strong class="kpi-main-val">${formatMoney(kpi.cost_usd)}</strong>
+              <div class="kpi-sub-info">
+                <span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span>
+              </div>
+              <div class="sparkline-box" style="--card-theme: var(--yellow)">
+                ${makeSparkline('var(--yellow)', 6)}
+              </div>
+            </article>
+          </div>
+        `;
+        $('#overview-kpis').innerHTML = html;
+      }
+
+      // ---- 平滑控制点贝塞尔曲线算法 (防止下穿 0 轴与上冲) ----
+      function buildClampedSmoothPath(pts, minY, maxY) {
+        if (pts.length < 2) return '';
+        let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p0 = pts[i];
+          const p1 = pts[i + 1];
+          const dx = p1.x - p0.x;
+          const dy = p1.y - p0.y;
+
+          // 平滑度插值计算
+          const cp1x = p0.x + dx * 0.32;
+          let cp1y = p0.y + dy * 0.12;
+          const cp2x = p1.x - dx * 0.32;
+          let cp2y = p1.y - dy * 0.12;
+
+          // 严格限制控制点 Y 坐标不超出 [minY, maxY] 边界（防止下穿底轴）
+          cp1y = Math.min(maxY, Math.max(minY, cp1y));
+          cp2y = Math.min(maxY, Math.max(minY, cp2y));
+
+          d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
+        }
+        return d;
+      }
+
+      function formatAxisNumber(val) {
+        if (val >= 1e8) return (val / 1e8).toFixed(1) + '亿';
+        if (val >= 1e4) return (val / 1e4).toFixed(0) + '万';
+        if (val >= 1e3) return (val / 1e3).toFixed(0) + 'k';
+        return Math.round(val);
+      }
+
+      // ---- 重新设计的 Vercel 级美感多维度趋势图 ----
+      function renderTrend(points) {
+        const host = $('#trend-chart');
+        const width = 860, height = 340;
+        const left = 65, right = 55, top = 25, bottom = 45;
+        const plotW = width - left - right, plotH = height - top - bottom;
+        const zeroY = top + plotH;
+
+        const active = state.trendActiveDims;
+        const maxToken = Math.max(1, ...points.map(p => Math.max(
+          active.input ? p.input : 0,
+          active.output ? p.output : 0,
+          active.cache_write ? p.cache_write : 0,
+          active.cache_read ? p.cache_read : 0
+        ))) * 1.15;
+
+        const x = (i) => left + (points.length === 1 ? plotW / 2 : i * plotW / (points.length - 1));
+        const tokenY = (val) => Math.min(zeroY, Math.max(top, top + plotH - (val / maxToken) * plotH));
+        const rateY = (rate) => Math.min(zeroY, Math.max(top, top + plotH - rate * plotH));
+
+        // 左 Y 轴刻度 (清晰无描边数字)
+        const leftGrid = [0, .25, .5, .75, 1].map(r => {
+          const yVal = top + plotH * (1 - r);
+          const isZero = r === 0;
+          return `<line class="${isZero ? 'chart-zero-line' : 'chart-grid-line'}" x1="${left}" y1="${yVal.toFixed(1)}" x2="${(width - right).toFixed(1)}" y2="${yVal.toFixed(1)}"/>
+                  <text class="chart-left-label" x="${left - 10}" y="${(yVal + 4).toFixed(1)}">${formatAxisNumber(maxToken * r)}</text>`;
+        }).join('');
+
+        // 右 Y 轴刻度 (百分比)
+        const rightGrid = [0, .2, .4, .6, .8, 1].map(r => {
+          const yVal = top + plotH * (1 - r);
+          return `<text class="chart-right-label" x="${width - right + 10}" y="${(yVal + 4).toFixed(1)}">${Math.round(r * 100)}%</text>`;
+        }).join('');
+
+        // 清晰水平 X 轴时间标签
+        const labelStep = Math.max(1, Math.floor(points.length / 7));
+        const xLabels = points.map((p, i) => {
+          if (i % labelStep !== 0 && i !== points.length - 1) return '';
+          const px = x(i);
+          const dateObj = new Date(p.timestamp_ms);
+          const timeStr = `${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
+          const dateStr = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
+          return `<g transform="translate(${px.toFixed(1)}, ${(zeroY + 22).toFixed(1)})">
+            <text class="chart-x-label">${dateStr} ${timeStr}</text>
+          </g>`;
+        }).join('');
+
+        // 各维度参数定义
+        const dims = [
+          { key: 'cache_read', color: '#18ad9d', dashed: false, area: true },
+          { key: 'input', color: '#326ff5', dashed: false, area: false },
+          { key: 'output', color: '#20b95a', dashed: false, area: false },
+          { key: 'cache_write', color: '#ff7a12', dashed: false, area: false },
+          { key: 'hit_rate', color: '#7738ee', dashed: true, area: false, isRate: true }
+        ];
+
+        let pathsHtml = '';
+        dims.forEach(dim => {
+          if (!active[dim.key]) return;
+
+          const pts = points.map((p, i) => ({
+            x: x(i),
+            y: dim.isRate ? rateY(p.hit_rate) : tokenY(p[dim.key])
+          }));
+
+          const pathD = buildClampedSmoothPath(pts, top, zeroY);
+
+          // 缓存读取渐变背景
+          if (dim.area) {
+            const areaD = `${pathD} L ${pts[pts.length - 1].x.toFixed(1)} ${zeroY} L ${pts[0].x.toFixed(1)} ${zeroY} Z`;
+            pathsHtml += `<defs>
+              <linearGradient id="area-grad-${dim.key}" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="${dim.color}" stop-opacity="0.18"/>
+                <stop offset="100%" stop-color="${dim.color}" stop-opacity="0.0"/>
+              </linearGradient>
+            </defs>
+            <path d="${areaD}" fill="url(#area-grad-${dim.key})" stroke="none" class="animated-area"/>`;
+          }
+
+          const strokeDash = dim.dashed ? 'stroke-dasharray="5 5"' : '';
+          pathsHtml += `<path d="${pathD}" fill="none" stroke="${dim.color}" stroke-width="2.5" ${strokeDash} stroke-linecap="round" class="animated-line"/>`;
+        });
+
+        host.innerHTML = `
+          <svg class="trend-svg-large" viewBox="0 0 ${width} ${height}" id="trend-svg-element">
+            ${leftGrid}
+            ${rightGrid}
+            ${pathsHtml}
+            ${xLabels}
+            <line id="crosshair-line" class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${zeroY}" hidden />
+            <g id="active-dots-group"></g>
+          </svg>
+          <div id="trend-tooltip" class="trend-tooltip-popup" hidden></div>
+        `;
+
+        const svgEl = $('#trend-svg-element');
+        const crosshair = $('#crosshair-line');
+        const activeDotsGroup = $('#active-dots-group');
+        const tooltip = $('#trend-tooltip');
+
+        host.onmousemove = (e) => {
+          const rect = svgEl.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          const viewBoxX = (mouseX / rect.width) * width;
+          
+          if (viewBoxX < left || viewBoxX > width - right) {
+            crosshair.hidden = true;
+            if (activeDotsGroup) activeDotsGroup.innerHTML = '';
+            tooltip.hidden = true;
+            return;
+          }
+
+          const stepX = plotW / (points.length - 1);
+          let closestIdx = Math.round((viewBoxX - left) / stepX);
+          closestIdx = Math.max(0, Math.min(points.length - 1, closestIdx));
+          const ptX = x(closestIdx);
+
+          crosshair.setAttribute('x1', ptX.toFixed(1));
+          crosshair.setAttribute('x2', ptX.toFixed(1));
+          crosshair.hidden = false;
+
+          const dataPt = points[closestIdx];
+
+          // 动态高亮圆点
+          let dotsHtml = '';
+          dims.forEach(dim => {
+            if (!active[dim.key]) return;
+            const ptY = dim.isRate ? rateY(dataPt.hit_rate) : tokenY(dataPt[dim.key]);
+            dotsHtml += `<circle cx="${ptX.toFixed(1)}" cy="${ptY.toFixed(1)}" r="5" fill="${dim.color}" stroke="var(--surface)" stroke-width="2.5" class="active-hover-dot"/>`;
+          });
+          if (activeDotsGroup) activeDotsGroup.innerHTML = dotsHtml;
+
+          const dateObj = new Date(dataPt.timestamp_ms);
+          const timeStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth()+1).padStart(2,'0')}-${String(dateObj.getDate()).padStart(2,'0')} ${String(dateObj.getHours()).padStart(2,'0')}:${String(dateObj.getMinutes()).padStart(2,'0')}`;
+          
+          let tooltipBody = '';
+          if (active.input) tooltipBody += `<div class="tt-row"><span class="tt-row-left"><span class="tt-box" style="background:#326ff5"></span>输入</span><strong>${formatCompact(dataPt.input)}</strong></div>`;
+          if (active.output) tooltipBody += `<div class="tt-row"><span class="tt-row-left"><span class="tt-box" style="background:#20b95a"></span>输出</span><strong>${formatCompact(dataPt.output)}</strong></div>`;
+          if (active.cache_write) tooltipBody += `<div class="tt-row"><span class="tt-row-left"><span class="tt-box" style="background:#ff7a12"></span>缓存创建</span><strong>${formatCompact(dataPt.cache_write)}</strong></div>`;
+          if (active.cache_read) tooltipBody += `<div class="tt-row"><span class="tt-row-left"><span class="tt-box" style="background:#18ad9d"></span>缓存读取</span><strong>${formatCompact(dataPt.cache_read)}</strong></div>`;
+          if (active.hit_rate) tooltipBody += `<div class="tt-row"><span class="tt-row-left"><span class="tt-box" style="background:#7738ee"></span>缓存命中率</span><strong>${formatPercent(dataPt.hit_rate)}</strong></div>`;
+
+          tooltip.innerHTML = `
+            <div class="tt-header">${timeStr}</div>
+            <div class="tt-body">${tooltipBody}</div>
+            <div class="tt-footer">实际费用: <strong>${formatMoney(dataPt.actual_cost)}</strong> | 标准费用: <strong>${formatMoney(dataPt.standard_cost)}</strong></div>
+          `;
+
+          const tooltipWidth = 260;
+          const clampedX = Math.max(tooltipWidth / 2 + 16, Math.min(window.innerWidth - tooltipWidth / 2 - 16, e.clientX));
+          const isTopOverflow = e.clientY < 260;
+
+          tooltip.style.left = `${clampedX}px`;
+          tooltip.style.top = `${e.clientY}px`;
+          tooltip.style.transform = isTopOverflow ? 'translate(-50%, 16px)' : 'translate(-50%, -100%) translateY(-16px)';
+          tooltip.hidden = false;
+        };
+
+        host.onmouseleave = () => {
+          crosshair.hidden = true;
+          if (activeDotsGroup) activeDotsGroup.innerHTML = '';
+          tooltip.hidden = true;
+        };
+      }
+
+      function renderHealth(points) {
+        const host = $('#health-grid');
+        const visible = points.slice(-(HEALTH_DAYS * HEALTH_SLOTS_PER_DAY));
+        const requests = visible.reduce((sum, p) => sum + (p.requests || 0), 0);
+        const failures = visible.reduce((sum, p) => sum + (p.failures || 0), 0);
+        const successes = Math.max(0, requests - failures);
+        $('#health-summary').textContent = requests ? formatPercent(successes / requests) : '--';
+        $('#health-success-count').textContent = formatInt(successes);
+        $('#health-failure-count').textContent = formatInt(failures);
+
+        const pad2 = (n) => String(n).padStart(2, '0');
+
+        host.innerHTML = Array.from({ length: HEALTH_DAYS }, (_, dayIndex) => {
+          const day = visible.slice(dayIndex * HEALTH_SLOTS_PER_DAY, (dayIndex + 1) * HEALTH_SLOTS_PER_DAY);
+          const dateLabel = day.length ? new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(day[0].timestamp_ms)) : '--';
+          
+          const cells = day.map((p, slotIdx) => {
+            const reqs = p.requests || 0, fails = p.failures || 0;
+            const succs = Math.max(0, reqs - fails);
+            const rate = reqs ? succs / reqs : 0;
+            const level = reqs ? (rate < .5 ? 1 : rate < .65 ? 2 : rate < .8 ? 3 : rate < .98 ? 4 : 5) : 0;
+
+            let timeRange = '';
+            if (p.timestamp_ms) {
+              const d1 = new Date(p.timestamp_ms);
+              const d2 = new Date(p.timestamp_ms + 15 * 60 * 1000);
+              const dateStr = `${d1.getFullYear()}-${pad2(d1.getMonth()+1)}-${pad2(d1.getDate())}`;
+              const t1 = `${pad2(d1.getHours())}:${pad2(d1.getMinutes())}`;
+              const t2 = `${pad2(d2.getHours())}:${pad2(d2.getMinutes())}`;
+              timeRange = `${dateStr} ${t1} ~ ${t2}`;
+            } else {
+              const startMin = slotIdx * 15;
+              const endMin = (slotIdx + 1) * 15;
+              timeRange = `${pad2(Math.floor(startMin/60))}:${pad2(startMin%60)} ~ ${pad2(Math.floor(endMin/60)%24)}:${pad2(endMin%60)}`;
+            }
+
+            return `<span class="health-cell level-${level}" data-time="${esc(timeRange)}" data-reqs="${reqs}" data-succs="${succs}" data-fails="${fails}" data-rate="${(rate*100).toFixed(1)}%"></span>`;
+          }).join('');
+          return `<div class="health-row"><span class="health-date">${esc(dateLabel)}</span><div class="health-cells">${cells}</div></div>`;
+        }).join('');
+      }
+
+      function renderRuntime(runtime) {
+        const items = [
+          ['队列', `${formatInt(runtime.queue_depth)} / ${formatInt(runtime.queue_capacity)}`],
+          ['已接收', formatInt(runtime.accepted)],
+          ['已写入', formatInt(runtime.written)],
+          ['已丢弃', formatInt(runtime.dropped)],
+          ['最近批写', `${formatNumber(runtime.last_batch_ms, 2)} ms`],
+        ];
+        $('#runtime-strip').innerHTML = items.map(([label, value]) => `<div class="runtime-item"><span>${label}</span><strong>${value}</strong></div>`).join('');
+      }
+
+      function renderAnalysis(data) {
+        renderDistributions(data.distributions || {});
+        renderTokenComposition(data.tokens || {});
+        renderModelTable(data.models || []);
+      }
+
+      function renderDistributions(distributions) {
+        const definitions = [
+          ['models', '模型分布'], ['providers', '上游分布'], ['api_keys', '客户端 Key 分组'], ['sources', '渠道来源分布'],
+        ];
+        $('#distribution-grid').innerHTML = definitions.map(([key, title]) => distributionCard(title, distributions[key] || [])).join('');
+      }
+
+      function distributionCard(title, values) {
+        const top = values.slice(0, 5);
+        const total = values.reduce((sum, item) => sum + (item.requests || 0), 0) || 1;
+        const circumference = 2 * Math.PI * 38;
+        let offset = 0;
+        const segments = top.map((item, index) => {
+          const pct = ((item.requests || 0) / total * 100).toFixed(1);
+          const length = (item.requests || 0) / total * circumference;
+          const color = COLORS[index % COLORS.length];
+          const segment = `<circle class="donut-segment" data-idx="${index}" data-name="${esc(item.name)}" data-reqs="${formatInt(item.requests)}" data-pct="${pct}%" data-color="${color}" cx="52" cy="52" r="38" stroke="${color}" stroke-dasharray="${length} ${circumference-length}" stroke-dashoffset="${-offset}"/>`;
+          offset += length;
+          return segment;
+        }).join('');
+        const list = top.map((item, index) => {
+          const pct = ((item.requests || 0) / total * 100).toFixed(1);
+          const color = COLORS[index % COLORS.length];
+          return `<div class="distribution-row" data-idx="${index}" data-name="${esc(item.name)}" data-reqs="${formatInt(item.requests)}" data-pct="${pct}%" data-color="${color}"><i style="background:${color}"></i><span title="${esc(item.name)}">${esc(item.name)}</span><strong>${formatCompact(item.requests)}</strong></div>`;
+        }).join('');
+        return `<article class="distribution-card"><h2>${title}</h2><div class="donut-layout"><div class="donut-wrapper"><svg class="donut" viewBox="0 0 104 104" aria-hidden="true"><circle class="donut-track" cx="52" cy="52" r="38"/>${segments}</svg><div class="donut-center-text"><span class="dct-name">占比率</span><span class="dct-val">TOP 5</span></div></div><div class="distribution-list">${list}</div></div></article>`;
+      }
+
+      function renderTokenComposition(tokens) {
+        const regularInput = Math.max(0, (tokens.input || 0) - (tokens.cache_read || 0) - (tokens.cache_write || 0));
+        const regularOutput = Math.max(0, (tokens.output || 0) - (tokens.reasoning || 0));
+        const parts = [
+          ['输入', regularInput, 'var(--blue)'], ['输出', regularOutput, 'var(--orange)'],
+          ['缓存读取', tokens.cache_read || 0, 'var(--accent)'], ['缓存写入', tokens.cache_write || 0, 'var(--yellow)'],
+          ['推理', tokens.reasoning || 0, 'var(--red)'],
+        ];
+        const sum = parts.reduce((total, [, value]) => total + value, 0) || 1;
+        $('#token-total').textContent = formatCompact(tokens.total || 0);
+        $('#token-composition').innerHTML = `<div class="token-stack">${parts.map(([, value, color]) => `<span style="width:${value/sum*100}%;background:${color}"></span>`).join('')}</div><div class="token-legend">${parts.map(([label, value, color]) => `<div class="token-legend-item" style="border-color:${color}"><span>${label}</span><strong>${formatCompact(value)}</strong></div>`).join('')}</div>`;
+      }
+
+      function renderModelTable(models) {
+        $('#model-table').innerHTML = models.map((item) => `<tr><td><span class="cell-main">${esc(item.name)}</span></td><td class="numeric">${formatInt(item.requests)}</td><td>${statusBadge(item.success_rate)}</td><td class="numeric">${formatCompact(item.total_tokens)}</td><td class="numeric">${formatDuration(item.avg_latency_ms)}</td><td class="numeric">${formatMoney(item.cost_usd)}</td></tr>`).join('');
+      }
+
+      function renderEvents(data) {
+        $('#event-count').textContent = `${formatInt(data.total)} 条记录`;
+        $('#page-label').textContent = `第 ${data.page} / ${data.pages} 页`;
+        $('#event-table').innerHTML = data.events.map((event) => {
+          const status = event.failed ? `失败 ${event.status_code}` : '成功';
+          const effort = event.reasoning_effort || '-';
+          const endpoint = event.endpoint || '-';
+          return `<tr>
+            <td><span class="cell-main">${esc(formatDateTime(event.timestamp_ms))}</span></td>
+            <td><span class="cell-main">${esc(event.model)}</span><span class="cell-sub">${esc(event.upstream_label)}</span></td>
+            <td><span class="cell-main">${esc(effort)}</span></td>
+            <td><span class="cell-main">${esc(endpoint)}</span></td>
+            <td><span class="status-badge ${event.failed ? 'is-failure' : ''}">${status}</span></td>
+            <td class="numeric"><span class="cell-main">${formatDuration(event.latency_ms)}</span><span class="cell-sub">首字 ${formatDuration(event.ttft_ms)}</span></td>
+            <td class="numeric">${formatInt(event.input_tokens)}</td>
+            <td class="numeric">${formatInt(event.output_tokens)}</td>
+            <td class="numeric">${formatInt(event.reasoning_tokens)}</td>
+            <td class="numeric">${formatInt(event.cache_read_tokens)}</td>
+            <td class="numeric">${formatInt(event.cache_creation_tokens)}</td>
+            <td class="numeric"><strong>${formatInt(event.total_tokens)}</strong></td>
+          </tr>`;
+        }).join('');
+      }
+
+      function loadInterfaces() {
+        const data = MOCK_DATA.interfaces;
+        const totalRequests = data.upstreams.reduce((sum, item) => sum + item.requests, 0) || 1;
+        const avgLatency = (data.upstreams.reduce((sum, item) => sum + item.avg_latency_ms, 0) / (data.upstreams.length || 1)).toFixed(0);
+
+        $('#interface-summary').innerHTML = `
+          <div class="interface-card theme-blue">
+            <div class="ic-head"><span>客户端 Key 凭证</span><div class="ic-icon"><svg><use href="#i-key"/></svg></div></div>
+            <strong class="ic-val">${formatInt(data.api_keys.length)} <small>个活跃 Key</small></strong>
+          </div>
+          <div class="interface-card theme-purple">
+            <div class="ic-head"><span>上游通道集群</span><div class="ic-icon"><svg><use href="#i-database"/></svg></div></div>
+            <strong class="ic-val">${formatInt(data.upstreams.length)} <small>个在线 Provider</small></strong>
+          </div>
+          <div class="interface-card theme-green">
+            <div class="ic-head"><span>接口总请求量</span><div class="ic-icon"><svg><use href="#i-activity"/></svg></div></div>
+            <strong class="ic-val">${formatCompact(totalRequests)} <small>次</small></strong>
+          </div>
+          <div class="interface-card theme-orange">
+            <div class="ic-head"><span>上游平均响应延迟</span><div class="ic-icon"><svg><use href="#i-clock"/></svg></div></div>
+            <strong class="ic-val">${formatDuration(avgLatency)}</strong>
+          </div>
+        `;
+        
+        $('#api-key-table').innerHTML = data.api_keys.map((item) => {
+          const pct = ((item.requests / totalRequests) * 100).toFixed(1);
+          return `<tr>
+            <td><span class="cell-main" style="font-family:monospace;font-weight:700;">${esc(item.name)}</span></td>
+            <td class="numeric">${formatInt(item.models)} 个模型</td>
+            <td>
+              <div class="progress-cell">
+                <span>${formatInt(item.requests)} <small style="color:var(--muted)">(${pct}%)</small></span>
+                <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pct}%;background:var(--blue)"></div></div>
+              </div>
+            </td>
+            <td>${statusBadge(item.success_rate)}</td>
+            <td class="numeric">${formatCompact(item.total_tokens)}</td>
+            <td class="numeric"><strong>${formatMoney(item.cost_usd)}</strong></td>
+          </tr>`;
+        }).join('');
+
+        $('#upstream-table').innerHTML = data.upstreams.map((item) => {
+          const pct = ((item.requests / totalRequests) * 100).toFixed(1);
+          return `<tr>
+            <td>
+              <span class="cell-main" style="font-weight:800;">${esc(item.name)}</span>
+            </td>
+            <td><span class="status-badge">正常在线</span></td>
+            <td class="numeric">${formatInt(item.models)} 个模型</td>
+            <td>
+              <div class="progress-cell">
+                <span>${formatInt(item.requests)} <small style="color:var(--muted)">(${pct}%)</small></span>
+                <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pct}%;background:var(--purple)"></div></div>
+              </div>
+            </td>
+            <td>${statusBadge(item.success_rate)}</td>
+            <td class="numeric">${formatDuration(item.avg_latency_ms)}</td>
+            <td class="numeric">${formatCompact(item.total_tokens)}</td>
+            <td><button class="secondary-button compact-btn" data-upstream="${esc(item.key)}"><svg><use href="#i-eye"/></svg>详情</button></td>
+          </tr>`;
+        }).join('');
+      }
+
+      function openUpstream(key) {
+        const drawer = $('#detail-drawer');
+        drawer.classList.add('is-open');
+        drawer.setAttribute('aria-hidden', 'false');
+        $('#drawer-scrim').classList.add('is-open');
+        
+        const up = MOCK_DATA.interfaces.upstreams.find(u => u.key === key) || MOCK_DATA.interfaces.upstreams[0];
+        $('#detail-title').textContent = up.name;
+
+        $('#detail-content').innerHTML = `
+          <div class="detail-kpis">
+            ${metric('总请求', formatInt(up.requests))}
+            ${metric('成功率', formatPercent(up.success_rate))}
+            ${metric('Token', formatCompact(up.total_tokens))}
+            ${metric('平均延迟', formatDuration(up.avg_latency_ms))}
+          </div>
+          <section class="detail-section" style="margin-top: 20px;">
+            <h3>通道健康状态</h3>
+            <div style="margin-top: 10px; display:flex; align-items:center; gap:8px;">
+              <span class="status-dot is-online"></span>
+              <strong style="font-size:13px;color:var(--green);">运行良好 (HTTP 200)</strong>
+            </div>
+          </section>
+          <section class="detail-section" style="margin-top: 20px;">
+            <h3>关联模型比例</h3>
+            <div class="distribution-list" style="margin-top: 10px;">
+              <div class="distribution-row"><i style="background:var(--blue)"></i><span>gpt-4o</span><strong>${formatInt(Math.floor(up.requests * 0.85))} 次</strong></div>
+              <div class="distribution-row"><i style="background:var(--purple)"></i><span>gemini-1.5-pro</span><strong>${formatInt(Math.floor(up.requests * 0.15))} 次</strong></div>
+            </div>
+          </section>
+        `;
+      }
+
+      function closeDrawer() {
+        $('#detail-drawer').classList.remove('is-open');
+        $('#detail-drawer').setAttribute('aria-hidden', 'true');
+        $('#drawer-scrim').classList.remove('is-open');
+      }
+
+      function loadSettings() {
+        const prices = MOCK_DATA.prices;
+        const body = $('#price-table');
+        body.innerHTML = '';
+        prices.forEach(appendPriceRow);
+        const metrics = [
+          ['数据库', '28.4 MB'], ['事件数', '38,603'], ['Rollup 缓存', '480'], ['队列丢弃', '0'],
+        ];
+        $('#storage-metrics').innerHTML = metrics.map(([label, value]) => metric(label, value)).join('');
+      }
+
+      function appendPriceRow(price = {}) {
+        const row = document.createElement('tr');
+        const fields = ['model', 'input_per_million', 'output_per_million', 'cache_read_per_million', 'cache_write_per_million', 'reasoning_per_million'];
+        row.innerHTML = fields.map((field, idx) => `<td><input data-price-field="${field}" type="${idx ? 'number' : 'text'}" ${idx ? 'min="0" step="0.000001"' : 'placeholder="model-name"'} value="${esc(price[field] ?? '')}"></td>`).join('') + `<td><button class="icon-button" data-remove-price title="删除"><svg><use href="#i-trash"></use></svg></button></td>`;
+        $('#price-table').appendChild(row);
+      }
+
+      function readTheme() {
+        try {
+          const saved = localStorage.getItem('usage-keeper-theme');
+          if (saved === 'light' || saved === 'dark' || saved === 'auto') return saved;
+        } catch (_) {}
+        return 'auto';
+      }
+
+      function toast(message, isError = false) {
+        const item = document.createElement('div');
+        item.className = `toast${isError ? ' is-error' : ''}`;
+        item.textContent = message;
+        $('#toast-region').appendChild(item);
+        setTimeout(() => item.remove(), 3000);
+      }
+
+      function metric(label, value) { return `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`; }
+      function statusBadge(rate) { return `<span class="status-badge ${rate < .9 ? 'is-failure' : ''}">${formatPercent(rate)}</span>`; }
+      function formatInt(val) { return number.format(Number(val || 0)); }
+      function formatCompact(val) { return compact.format(Number(val || 0)); }
+      function formatNumber(val, digits = 1) { return Number(val || 0).toFixed(digits); }
+      function formatPercent(val) { return `${(Number(val || 0) * 100).toFixed(val >= .999 ? 2 : 1)}%`; }
+      function formatMoney(val) { return money.format(Number(val || 0)); }
+      function formatDuration(val) { const ms = Number(val || 0); return ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`; }
+      function formatDateTime(val) { return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(Number(val))); }
+    })();
+  </script>
+</body>
+</html>

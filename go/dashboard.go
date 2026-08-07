@@ -29,7 +29,7 @@ func serveDashboardAsset(path string) managementResponse {
 	}
 	headers := noStoreHeaders(contentType)
 	if asset == "dashboard/index.html" {
-		headers.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
+		headers.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
 	}
 	return managementResponse{StatusCode: http.StatusOK, Headers: headers, Body: body}
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -34,6 +35,7 @@ func openEventStore(cfg runtimeConfig) (*eventStore, error) {
 		}
 		dsn = "file:" + filepath.ToSlash(path)
 	}
+	dsn = withConnectionPragmas(dsn)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -46,6 +48,18 @@ func openEventStore(cfg runtimeConfig) (*eventStore, error) {
 		return nil, err
 	}
 	return store, nil
+}
+
+func withConnectionPragmas(dsn string) string {
+	separator := "?"
+	if strings.Contains(dsn, "?") {
+		separator = "&"
+	}
+	query := url.Values{}
+	query.Add("_pragma", "busy_timeout(2000)")
+	query.Add("_pragma", "synchronous(NORMAL)")
+	query.Add("_pragma", "temp_store(MEMORY)")
+	return dsn + separator + query.Encode()
 }
 
 func (s *eventStore) initialize() error {
@@ -63,6 +77,7 @@ func (s *eventStore) initialize() error {
 			executor_type TEXT NOT NULL,
 			model TEXT NOT NULL,
 			alias TEXT NOT NULL,
+			endpoint TEXT NOT NULL DEFAULT '',
 			api_key_mask TEXT NOT NULL,
 			api_key_hash TEXT NOT NULL,
 			auth_id TEXT NOT NULL,
@@ -138,16 +153,45 @@ func (s *eventStore) initialize() error {
 			return fmt.Errorf("initialize sqlite: %w", err)
 		}
 	}
+	if err := s.ensureEndpointColumn(ctx); err != nil {
+		return fmt.Errorf("migrate sqlite: %w", err)
+	}
 	return nil
 }
 
+func (s *eventStore) ensureEndpointColumn(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info(usage_events)")
+	if err != nil {
+		return err
+	}
+	hasEndpoint := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, dataType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		hasEndpoint = hasEndpoint || name == "endpoint"
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if hasEndpoint {
+		return nil
+	}
+	_, err = s.db.ExecContext(ctx, "ALTER TABLE usage_events ADD COLUMN endpoint TEXT NOT NULL DEFAULT ''")
+	return err
+}
+
 const insertEventSQL = `INSERT INTO usage_events (
-	timestamp_ms, provider, executor_type, model, alias, api_key_mask, api_key_hash,
+	timestamp_ms, provider, executor_type, model, alias, endpoint, api_key_mask, api_key_hash,
 	auth_id, auth_index, auth_type, upstream_key, upstream_label, source,
 	reasoning_effort, service_tier, generate, latency_ms, ttft_ms, failed,
 	status_code, failure, input_tokens, output_tokens, reasoning_tokens,
 	cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 const upsertRollupSQL = `INSERT INTO usage_minute_rollups (
 	minute, provider, model, source, api_key_hash, api_key_mask, upstream_key,
@@ -223,7 +267,7 @@ func writeEventsTx(ctx context.Context, tx *sql.Tx, events []usageEvent) error {
 	for _, event := range events {
 		if _, err := eventStmt.ExecContext(ctx,
 			event.TimestampMS, event.Provider, event.ExecutorType, event.Model, event.Alias,
-			event.APIKeyMask, event.APIKeyHash, event.AuthID, event.AuthIndex, event.AuthType,
+			event.Endpoint, event.APIKeyMask, event.APIKeyHash, event.AuthID, event.AuthIndex, event.AuthType,
 			event.UpstreamKey, event.UpstreamLabel, event.Source, event.ReasoningEffort,
 			event.ServiceTier, boolInt(event.Generate), event.LatencyMS, event.TTFTMS,
 			boolInt(event.Failed), event.StatusCode, event.Failure, event.InputTokens,

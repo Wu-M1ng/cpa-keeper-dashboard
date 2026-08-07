@@ -50,8 +50,37 @@ func TestQuerySummaryUsesRollups(t *testing.T) {
 	if result.KPI.TotalTokens != 1930 || result.KPI.CostUSD <= 0 {
 		t.Fatalf("tokens/cost missing: %+v", result.KPI)
 	}
+	if result.KPI.InputTokens != 1700 || result.KPI.OutputTokens != 230 ||
+		result.KPI.CacheReadTokens != 850 || result.KPI.CacheWriteTokens != 0 ||
+		result.KPI.ReasoningTokens != 0 {
+		t.Fatalf("token dimensions missing from KPI: %+v", result.KPI)
+	}
+	if result.KPI.CacheRate != 0.5 || result.KPI.AvgRequestsDaily != 3 ||
+		result.KPI.AvgTokensDaily != 1930 || result.KPI.AvgCostDaily <= 0 {
+		t.Fatalf("daily/cache KPI missing: %+v", result.KPI)
+	}
+	if result.KPI.RPM <= 0 || result.KPI.TPM <= 0 || result.KPI.RangeLabel != "24h" {
+		t.Fatalf("rate/range KPI missing: %+v", result.KPI)
+	}
 	if len(result.Trend) == 0 || len(result.Health) != 5*24*4 {
 		t.Fatalf("trend or health missing: %+v", result)
+	}
+	var trendTokens tokenTotals
+	var actualCost, standardCost float64
+	for _, point := range result.Trend {
+		trendTokens.Input += point.Input
+		trendTokens.Output += point.Output
+		trendTokens.CacheRead += point.CacheRead
+		trendTokens.CacheWrite += point.CacheWrite
+		trendTokens.Reasoning += point.Reasoning
+		actualCost += point.ActualCost
+		standardCost += point.StandardCost
+	}
+	if trendTokens.Input != 1700 || trendTokens.Output != 230 || trendTokens.CacheRead != 850 {
+		t.Fatalf("trend token dimensions = %+v", trendTokens)
+	}
+	if actualCost <= 0 || standardCost < actualCost {
+		t.Fatalf("trend costs actual=%f standard=%f", actualCost, standardCost)
 	}
 	wantStart := now.UTC().Truncate(24 * time.Hour).Add(-4 * 24 * time.Hour).UnixMilli()
 	wantEnd := wantStart + int64((5*24*4-1)*15*time.Minute/time.Millisecond)
@@ -325,5 +354,15 @@ func TestBackupRoundTrip(t *testing.T) {
 	}
 	if result.Events != 3 || target.status().EventCount != 3 {
 		t.Fatalf("restore failed: result=%+v status=%+v", result, target.status())
+	}
+}
+
+func TestImportBackupRejectsNegativeMeasurements(t *testing.T) {
+	store := openTestStore(t)
+	event := fixtureEvent(time.Now().UTC(), "gpt-5.6", false, 10, 5)
+	event.InputTokens = -1
+	_, err := importBackup(context.Background(), store, backupPayload{Version: 1, Events: []usageEvent{event}})
+	if err == nil || !strings.Contains(err.Error(), "negative measurement") {
+		t.Fatalf("import error = %v, want negative measurement rejection", err)
 	}
 }

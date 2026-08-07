@@ -20,21 +20,41 @@ type timeRange struct {
 }
 
 type kpiStats struct {
-	Requests     int64   `json:"requests"`
-	Successes    int64   `json:"successes"`
-	Failures     int64   `json:"failures"`
-	SuccessRate  float64 `json:"success_rate"`
-	TotalTokens  int64   `json:"total_tokens"`
-	CostUSD      float64 `json:"cost_usd"`
-	AvgLatencyMS float64 `json:"avg_latency_ms"`
-	AvgTTFTMS    float64 `json:"avg_ttft_ms"`
+	Requests         int64   `json:"requests"`
+	Successes        int64   `json:"successes"`
+	Failures         int64   `json:"failures"`
+	SuccessRate      float64 `json:"success_rate"`
+	TotalTokens      int64   `json:"total_tokens"`
+	InputTokens      int64   `json:"input_tokens"`
+	OutputTokens     int64   `json:"output_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	ReasoningTokens  int64   `json:"reasoning_tokens"`
+	CostUSD          float64 `json:"cost_usd"`
+	AvgLatencyMS     float64 `json:"avg_latency_ms"`
+	AvgTTFTMS        float64 `json:"avg_ttft_ms"`
+	AvgRequestsDaily float64 `json:"avg_requests_daily"`
+	AvgTokensDaily   float64 `json:"avg_tokens_daily"`
+	AvgCostDaily     float64 `json:"avg_cost_daily"`
+	RPM              float64 `json:"rpm"`
+	TPM              float64 `json:"tpm"`
+	CacheRate        float64 `json:"cache_rate"`
+	RangeLabel       string  `json:"range_label"`
 }
 
 type trendPoint struct {
-	TimestampMS int64   `json:"timestamp_ms"`
-	Requests    int64   `json:"requests"`
-	Tokens      int64   `json:"tokens"`
-	CostUSD     float64 `json:"cost_usd"`
+	TimestampMS  int64   `json:"timestamp_ms"`
+	Requests     int64   `json:"requests"`
+	Tokens       int64   `json:"tokens"`
+	Input        int64   `json:"input"`
+	Output       int64   `json:"output"`
+	CacheWrite   int64   `json:"cache_write"`
+	CacheRead    int64   `json:"cache_read"`
+	Reasoning    int64   `json:"reasoning"`
+	HitRate      float64 `json:"hit_rate"`
+	CostUSD      float64 `json:"cost_usd"`
+	ActualCost   float64 `json:"actual_cost"`
+	StandardCost float64 `json:"standard_cost"`
 }
 
 type healthPoint struct {
@@ -199,6 +219,7 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 		return summaryResponse{}, err
 	}
 	result := summaryResponse{Range: rng, Trend: []trendPoint{}, Health: []healthPoint{}, GeneratedAt: now.UTC().Format(time.RFC3339)}
+	result.KPI.RangeLabel = rng.Label
 	if runtime := currentRuntime(); runtime != nil && runtime.store == store {
 		result.Runtime = runtime.status()
 	} else {
@@ -211,7 +232,15 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 		result.KPI.Successes += row.Successes
 		result.KPI.Failures += row.Failures
 		result.KPI.TotalTokens += row.Tokens.Total
-		result.KPI.CostUSD += calculateCost(row.Tokens, resolvePrice(row.Model, prices))
+		result.KPI.InputTokens += row.Tokens.Input
+		result.KPI.OutputTokens += row.Tokens.Output
+		result.KPI.CacheReadTokens += row.Tokens.CacheRead
+		result.KPI.CacheWriteTokens += row.Tokens.CacheWrite
+		result.KPI.ReasoningTokens += row.Tokens.Reasoning
+		price := resolvePrice(row.Model, prices)
+		actualCost := calculateCost(row.Tokens, price)
+		standardCost := calculateStandardCost(row.Tokens, price)
+		result.KPI.CostUSD += actualCost
 		latencySum += row.LatencySumMS
 		ttftSum += row.TTFTSumMS
 		ttftCount += row.TTFTCount
@@ -222,12 +251,37 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 		}
 		point.Requests += row.Requests
 		point.Tokens += row.Tokens.Total
-		point.CostUSD += calculateCost(row.Tokens, resolvePrice(row.Model, prices))
+		point.Input += row.Tokens.Input
+		point.Output += row.Tokens.Output
+		point.CacheRead += row.Tokens.CacheRead
+		point.CacheWrite += row.Tokens.CacheWrite
+		point.Reasoning += row.Tokens.Reasoning
+		point.CostUSD += actualCost
+		point.ActualCost += actualCost
+		point.StandardCost += standardCost
 	}
 	result.KPI.SuccessRate = ratio(result.KPI.Successes, result.KPI.Requests)
 	result.KPI.AvgLatencyMS = average(latencySum, result.KPI.Requests)
 	result.KPI.AvgTTFTMS = average(ttftSum, ttftCount)
+	result.KPI.CacheRate = ratio(result.KPI.CacheReadTokens, result.KPI.InputTokens)
+	duration := effectiveSummaryDuration(rng, rows)
+	days := duration.Hours() / 24
+	if days < 1 {
+		days = 1
+	}
+	minutes := duration.Minutes()
+	if minutes < 1 {
+		minutes = 1
+	}
+	result.KPI.AvgRequestsDaily = float64(result.KPI.Requests) / days
+	result.KPI.AvgTokensDaily = float64(result.KPI.TotalTokens) / days
+	result.KPI.AvgCostDaily = result.KPI.CostUSD / days
+	result.KPI.RPM = float64(result.KPI.Requests) / minutes
+	result.KPI.TPM = float64(result.KPI.TotalTokens) / minutes
 	appendDenseTrend(&result.Trend, trendByBucket, rng, rng.IntervalMinutes)
+	for i := range result.Trend {
+		result.Trend[i].HitRate = ratio(result.Trend[i].CacheRead, result.Trend[i].Input)
+	}
 	sort.Slice(result.Trend, func(i, j int) bool { return result.Trend[i].TimestampMS < result.Trend[j].TimestampMS })
 
 	const healthInterval int64 = 15
@@ -255,6 +309,26 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 	appendDenseHealth(&result.Health, healthByBucket, healthRange, healthInterval)
 	sort.Slice(result.Health, func(i, j int) bool { return result.Health[i].TimestampMS < result.Health[j].TimestampMS })
 	return result, nil
+}
+
+func effectiveSummaryDuration(rng timeRange, rows []aggregateRow) time.Duration {
+	if rng.Label != "all" || len(rows) == 0 {
+		return time.Duration(rng.ToMS-rng.FromMS) * time.Millisecond
+	}
+	first, last := rows[0].Bucket, rows[0].Bucket
+	for _, row := range rows[1:] {
+		if row.Bucket < first {
+			first = row.Bucket
+		}
+		if row.Bucket > last {
+			last = row.Bucket
+		}
+	}
+	minutes := last - first + rng.IntervalMinutes
+	if minutes < rng.IntervalMinutes {
+		minutes = rng.IntervalMinutes
+	}
+	return time.Duration(minutes) * time.Minute
 }
 
 func appendDenseTrend(target *[]trendPoint, buckets map[int64]*trendPoint, rng timeRange, interval int64) {
@@ -494,7 +568,7 @@ func queryDimension(ctx context.Context, store *eventStore, rng timeRange, keyCo
 	return result, nil
 }
 
-const eventColumns = `id, timestamp_ms, provider, executor_type, model, alias,
+const eventColumns = `id, timestamp_ms, provider, executor_type, model, alias, endpoint,
 	api_key_mask, api_key_hash, auth_id, auth_index, auth_type, upstream_key,
 	upstream_label, source, reasoning_effort, service_tier, generate, latency_ms,
 	ttft_ms, failed, status_code, failure, input_tokens, output_tokens,
@@ -637,7 +711,7 @@ func scanEvent(scanner rowScanner) (usageEvent, error) {
 	var event usageEvent
 	var generate, failed int64
 	err := scanner.Scan(&event.ID, &event.TimestampMS, &event.Provider, &event.ExecutorType,
-		&event.Model, &event.Alias, &event.APIKeyMask, &event.APIKeyHash, &event.AuthID,
+		&event.Model, &event.Alias, &event.Endpoint, &event.APIKeyMask, &event.APIKeyHash, &event.AuthID,
 		&event.AuthIndex, &event.AuthType, &event.UpstreamKey, &event.UpstreamLabel,
 		&event.Source, &event.ReasoningEffort, &event.ServiceTier, &generate,
 		&event.LatencyMS, &event.TTFTMS, &failed, &event.StatusCode, &event.Failure,
@@ -691,9 +765,9 @@ func eventWhere(filter eventFilter) (string, []any) {
 		conditions = append(conditions, "failed = 1")
 	}
 	if strings.TrimSpace(filter.Search) != "" {
-		conditions = append(conditions, "(model LIKE ? OR provider LIKE ? OR upstream_label LIKE ? OR source LIKE ? OR failure LIKE ?)")
+		conditions = append(conditions, "(model LIKE ? OR provider LIKE ? OR endpoint LIKE ? OR upstream_label LIKE ? OR source LIKE ? OR failure LIKE ?)")
 		needle := "%" + strings.TrimSpace(filter.Search) + "%"
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 6; i++ {
 			args = append(args, needle)
 		}
 	}

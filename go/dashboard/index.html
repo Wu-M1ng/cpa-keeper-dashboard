@@ -26,6 +26,12 @@
     <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
     <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></symbol>
     <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></symbol>
+    <symbol id="i-diamond" viewBox="0 0 24 24"><path d="M6 3h12l4 6-10 12L2 9Z"/><path d="m2 9 10 12 10-12M8 9l4 12 4-12M6 3l2 6h8l2-6"/></symbol>
+    <symbol id="i-dollar" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></symbol>
+    <symbol id="i-percent" viewBox="0 0 24 24"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <symbol id="i-trend-up" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
   </svg>
 
   <div class="app-shell">
@@ -57,9 +63,21 @@
 
       <main id="main-content">
         <section class="page is-active" data-page="overview">
-          <div class="kpi-grid" id="overview-kpis"></div>
+          <div class="kpi-section" id="overview-kpis"></div>
           <div class="overview-grid">
-            <section class="panel trend-panel"><div class="panel-head"><div><h2>用量趋势</h2><p id="trend-caption">请求、Token 与费用</p></div><div class="legend"><span class="legend-request">请求</span><span class="legend-token">Token</span></div></div><div id="trend-chart" class="chart-host stable-chart"></div></section>
+            <section class="panel trend-panel">
+              <div class="panel-head">
+                <div><h2>用量趋势</h2><p id="trend-caption">输入、输出、缓存与命中率多维度趋势对比</p></div>
+                <div class="trend-legend-interactive" id="trend-legend">
+                  <button class="legend-chip is-active" data-dim="input" style="--chip-color:#326ff5"><span class="chip-circle" style="background:#326ff5"></span><span>输入</span></button>
+                  <button class="legend-chip is-active" data-dim="output" style="--chip-color:#20b95a"><span class="chip-circle" style="background:#20b95a"></span><span>输出</span></button>
+                  <button class="legend-chip is-active" data-dim="cache_write" style="--chip-color:#ff7a12"><span class="chip-circle" style="background:#ff7a12"></span><span>缓存创建</span></button>
+                  <button class="legend-chip is-active" data-dim="cache_read" style="--chip-color:#18ad9d"><span class="chip-circle" style="background:#18ad9d"></span><span>缓存读取</span></button>
+                  <button class="legend-chip is-active" data-dim="hit_rate" style="--chip-color:#7738ee"><span class="chip-circle chip-dashed" style="background:#7738ee;border:2px dashed #7738ee"></span><span>缓存命中率</span></button>
+                </div>
+              </div>
+              <div id="trend-chart" class="chart-host-interactive"></div>
+            </section>
             <section class="panel health-panel">
               <div class="panel-head health-panel-head">
                 <div><h2>服务健康监测</h2><p>最近5天，15分钟一个网格；绿色代表成功率高，红色代表失败较多。</p></div>
@@ -73,36 +91,42 @@
               <div class="health-scale"><span>异常</span><i class="level-1"></i><i class="level-2"></i><i class="level-3"></i><i class="level-4"></i><i class="level-5"></i><span>健康</span><em>灰色为无请求</em></div>
             </section>
           </div>
+          <div class="overview-section">
+            <div class="distribution-grid" id="distribution-grid"></div>
+            <section class="panel token-panel"><div class="panel-head"><div><h2>Token 构成</h2><p>输入、输出、缓存与推理消耗</p></div><strong id="token-total">0</strong></div><div id="token-composition"></div></section>
+            <section class="table-section">
+              <div class="section-head"><div><h2>模型统计</h2><p>请求质量、消耗与成本</p></div></div>
+              <div class="table-wrap"><table><thead><tr><th scope="col">模型</th><th scope="col">请求</th><th scope="col">成功率</th><th scope="col">Token</th><th scope="col">平均延迟</th><th scope="col">费用</th></tr></thead><tbody id="model-table"></tbody></table></div>
+            </section>
+          </div>
           <div class="runtime-strip" id="runtime-strip"></div>
-        </section>
-
-        <section class="page is-active overview-section" data-page="overview">
-          <div class="distribution-grid" id="distribution-grid"></div>
-          <section class="panel token-panel"><div class="panel-head"><div><h2>Token 构成</h2><p>输入、输出、缓存与推理</p></div><strong id="token-total">0</strong></div><div id="token-composition"></div></section>
-          <section class="table-section"><div class="section-head"><div><h2>模型统计</h2><p>请求质量、消耗与成本</p></div></div><div class="table-wrap"><table><thead><tr><th>模型</th><th>请求</th><th>成功率</th><th>Token</th><th>平均延迟</th><th>费用</th></tr></thead><tbody id="model-table"></tbody></table></div></section>
+          <div class="overview-section event-section">
+            <form class="filter-bar" id="event-filters" aria-label="请求明细筛选">
+              <label><span>搜索</span><input name="q" type="search" placeholder="输入模型、渠道、端点或关键字"></label>
+              <label><span>Provider</span><select name="provider"><option value="">全部</option></select></label>
+              <label><span>模型</span><select name="model"><option value="">全部</option></select></label>
+              <label><span>状态</span><select name="status"><option value="">全部</option><option value="success">成功</option><option value="failure">失败</option></select></label>
+              <button class="primary-button" type="submit">筛选</button>
+              <button class="secondary-button" type="reset" id="event-reset">重置</button>
+              <button class="secondary-button" id="event-export" type="button"><svg><use href="#i-download"/></svg>导出 CSV</button>
+            </form>
+            <section class="table-section event-table-section">
+              <div class="section-head"><div><h2>请求明细记录</h2><p id="event-count">0 条记录</p></div></div>
+              <div class="table-wrap"><table class="event-table"><thead><tr><th scope="col">时间</th><th scope="col">模型 / 渠道</th><th scope="col">推理强度</th><th scope="col">端点</th><th scope="col">状态</th><th scope="col">用时 / 首字</th><th scope="col">非缓存输入</th><th scope="col">输出</th><th scope="col">思考</th><th scope="col">缓存命中</th><th scope="col">缓存创建</th><th scope="col">总 Token</th></tr></thead><tbody id="event-table"></tbody></table></div>
+              <div class="pagination"><button id="page-prev" class="icon-button" title="上一页" aria-label="上一页"><svg><use href="#i-chevron-left"/></svg></button><span id="page-label">第 1 页</span><button id="page-next" class="icon-button" title="下一页" aria-label="下一页"><svg><use href="#i-chevron-right"/></svg></button></div>
+            </section>
+          </div>
         </section>
 
         <section class="page" data-page="interfaces">
           <div class="interface-summary" id="interface-summary"></div>
-          <section class="table-section"><div class="section-head"><div><h2>客户端 Key 分组</h2><p>匿名客户端调用分组</p></div></div><div class="table-wrap"><table><thead><tr><th>客户端 Key</th><th>模型</th><th>请求</th><th>成功率</th><th>Token</th><th>费用</th></tr></thead><tbody id="api-key-table"></tbody></table></div></section>
-          <section class="table-section"><div class="section-head"><div><h2>上游统计</h2><p>匿名 Provider 凭证分组</p></div></div><div class="table-wrap"><table><thead><tr><th>上游分组</th><th>模型</th><th>请求</th><th>成功率</th><th>平均延迟</th><th>Token</th></tr></thead><tbody id="upstream-table"></tbody></table></div></section>
-        </section>
-
-        <section class="page is-active overview-section" data-page="overview">
-          <form class="filter-bar" id="event-filters">
-            <label><span>搜索</span><input name="q" type="search" placeholder="模型、上游或错误"></label>
-            <label><span>Provider</span><select name="provider"><option value="">全部</option></select></label>
-            <label><span>模型</span><select name="model"><option value="">全部</option></select></label>
-            <label><span>状态</span><select name="status"><option value="">全部</option><option value="success">成功</option><option value="failure">失败</option></select></label>
-            <button class="primary-button" type="submit">筛选</button>
-            <button class="secondary-button" id="event-export" type="button"><svg><use href="#i-download"/></svg>导出</button>
-          </form>
-          <section class="table-section event-table-section"><div class="section-head"><div><h2>请求明细</h2><p id="event-count">0 条记录</p></div></div><div class="table-wrap"><table class="event-table"><thead><tr><th>时间</th><th>模型</th><th>状态</th><th>用时 / 首字</th><th>非缓存输入</th><th>输出</th><th>思考</th><th>缓存命中</th><th>缓存创建</th><th>总计</th></tr></thead><tbody id="event-table"></tbody></table></div><div class="pagination"><button id="page-prev" class="icon-button" title="上一页"><svg><use href="#i-chevron-left"/></svg></button><span id="page-label">第 1 页</span><button id="page-next" class="icon-button" title="下一页"><svg><use href="#i-chevron-right"/></svg></button></div></section>
+          <section class="table-section"><div class="section-head"><div><h2>客户端 Key 分组</h2><p>匿名客户端调用分组汇总与负载占比</p></div></div><div class="table-wrap"><table><thead><tr><th scope="col">客户端 Key</th><th scope="col">绑定模型</th><th scope="col">调用次数与占比</th><th scope="col">成功率</th><th scope="col">Token</th><th scope="col">预估费用</th></tr></thead><tbody id="api-key-table"></tbody></table></div></section>
+          <section class="table-section"><div class="section-head"><div><h2>上游统计</h2><p>匿名 Provider 凭证分组与健康监控</p></div></div><div class="table-wrap"><table><thead><tr><th scope="col">上游分组名称</th><th scope="col">状态</th><th scope="col">关联模型</th><th scope="col">负载请求占比</th><th scope="col">成功率</th><th scope="col">平均延迟</th><th scope="col">Token</th><th scope="col">操作</th></tr></thead><tbody id="upstream-table"></tbody></table></div></section>
         </section>
 
         <section class="page" data-page="settings">
           <section class="settings-band"><div class="settings-title"><svg><use href="#i-database"/></svg><div><h2>存储状态</h2><p id="storage-path">--</p></div></div><div class="storage-metrics" id="storage-metrics"></div><form id="storage-settings" class="inline-form"><label><span>保留天数</span><input name="retention_days" type="number" min="1" max="3650"></label><label><span>导出上限</span><input name="export_max_records" type="number" min="100" max="1000000"></label><button class="primary-button" type="submit"><svg><use href="#i-save"/></svg>保存</button></form></section>
-          <section class="table-section price-section"><div class="section-head"><div><h2>模型价格</h2><p>USD / 1M Token</p></div><div class="command-group"><button id="add-price" class="secondary-button"><svg><use href="#i-plus"/></svg>添加模型</button><button id="save-prices" class="primary-button"><svg><use href="#i-save"/></svg>保存价格</button></div></div><div class="table-wrap"><table class="price-table"><thead><tr><th>模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存写入</th><th>推理</th><th></th></tr></thead><tbody id="price-table"></tbody></table></div></section>
+          <section class="table-section price-section"><div class="section-head"><div><h2>模型价格设置</h2><p>USD / 1M Token</p></div><div class="command-group"><button id="add-price" class="secondary-button"><svg><use href="#i-plus"/></svg>添加模型</button><button id="save-prices" class="primary-button"><svg><use href="#i-save"/></svg>保存价格表</button></div></div><div class="table-wrap"><table class="price-table"><thead><tr><th scope="col">模型</th><th scope="col">输入 ($)</th><th scope="col">输出 ($)</th><th scope="col">缓存读取 ($)</th><th scope="col">缓存写入 ($)</th><th scope="col">推理 ($)</th><th scope="col">操作</th></tr></thead><tbody id="price-table"></tbody></table></div></section>
           <section class="settings-band backup-band"><div><h2>数据迁移</h2><p>事件、聚合所需字段与模型价格</p></div><div class="command-group"><button id="backup-export" class="secondary-button"><svg><use href="#i-download"/></svg>导出备份</button><button id="backup-import" class="secondary-button"><svg><use href="#i-upload"/></svg>导入备份</button><input id="backup-file" type="file" accept="application/json,.json" hidden></div></section>
           <section class="settings-band connection-band"><div><h2>管理连接</h2><p id="auth-state">当前会话</p></div><button id="change-key" class="secondary-button"><svg><use href="#i-key"/></svg>更新密钥</button></section>
         </section>
@@ -110,10 +134,11 @@
     </div>
   </div>
 
-  <aside id="detail-drawer" class="detail-drawer" aria-hidden="true"><div class="drawer-head"><div><small>上游详情</small><h2 id="detail-title">--</h2></div><button id="detail-close" class="icon-button" aria-label="关闭"><svg><use href="#i-x"/></svg></button></div><div id="detail-content"></div></aside>
+  <aside id="detail-drawer" class="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="detail-title" aria-hidden="true" inert><div class="drawer-head"><div><small>上游详情</small><h2 id="detail-title">--</h2></div><button id="detail-close" class="icon-button" aria-label="关闭详情"><svg><use href="#i-x"/></svg></button></div><div id="detail-content"></div></aside>
   <div id="drawer-scrim" class="drawer-scrim"></div>
 
   <dialog id="auth-dialog"><form method="dialog" id="auth-form"><div class="dialog-head"><h2>Management Key</h2><button value="cancel" class="icon-button" aria-label="关闭"><svg><use href="#i-x"/></svg></button></div><label><span>管理密钥</span><input id="auth-key" type="password" autocomplete="current-password" required></label><div class="dialog-actions"><button value="cancel" class="secondary-button">取消</button><button value="default" class="primary-button" id="auth-save">连接</button></div></form></dialog>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  <div id="floating-tooltip" class="floating-glass-tooltip" role="tooltip"></div>
 </body>
 </html>

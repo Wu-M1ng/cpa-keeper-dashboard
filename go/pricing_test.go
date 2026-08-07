@@ -26,6 +26,34 @@ func TestCalculateCostAvoidsCacheAndReasoningDoubleCharge(t *testing.T) {
 	}
 }
 
+func TestCalculateStandardCostPricesCacheReadAsRegularInput(t *testing.T) {
+	price := modelPrice{
+		InputPerMillion:      2,
+		OutputPerMillion:     8,
+		CacheReadPerMillion:  0.2,
+		CacheWritePerMillion: 2.5,
+		ReasoningPerMillion:  10,
+	}
+	tokens := tokenTotals{
+		Input:      1000,
+		Output:     500,
+		CacheRead:  200,
+		CacheWrite: 100,
+		Reasoning:  100,
+	}
+
+	// Standard cost removes the cache-read discount while keeping the other
+	// configured token classes identical to calculateCost.
+	want := 0.00625
+	got := calculateStandardCost(tokens, price)
+	if diff := got - want; diff < -1e-12 || diff > 1e-12 {
+		t.Fatalf("standard cost = %.8f, want %.8f", got, want)
+	}
+	if got <= calculateCost(tokens, price) {
+		t.Fatalf("standard cost %.8f should exceed actual cost", got)
+	}
+}
+
 func TestPriceValidationRejectsNegativeValues(t *testing.T) {
 	if err := validatePrices([]modelPrice{{Model: "gpt", InputPerMillion: -1}}); err == nil {
 		t.Fatal("negative price should be rejected")

@@ -12,24 +12,34 @@ func TestDashboardAssetsAreEmbeddedAndSelfContained(t *testing.T) {
 	if root.StatusCode != http.StatusOK || root.Headers.Get("Content-Type") != "text/html; charset=utf-8" {
 		t.Fatalf("root asset response: %+v", root)
 	}
+	csp := root.Headers.Get("Content-Security-Policy")
+	if !strings.Contains(csp, "script-src 'self'") || !strings.Contains(csp, "style-src 'self' 'unsafe-inline'") {
+		t.Fatalf("dashboard CSP does not allow its trusted dynamic styles: %q", csp)
+	}
 	for _, page := range []string{"overview", "interfaces", "settings"} {
 		if !bytes.Contains(root.Body, []byte(`data-page="`+page+`"`)) {
 			t.Fatalf("dashboard is missing page %q", page)
 		}
 	}
-	if bytes.Count(root.Body, []byte(`data-page="overview"`)) != 3 {
-		t.Fatal("overview must contain summary, analysis, and events sections")
+	if bytes.Count(root.Body, []byte(`data-page="overview"`)) != 1 {
+		t.Fatal("overview must combine summary, analysis, and events in one page")
 	}
 	if bytes.Contains(root.Body, []byte(`data-page-target="analysis"`)) || bytes.Contains(root.Body, []byte(`data-page-target="events"`)) {
 		t.Fatal("analysis and events must not remain as separate navigation pages")
 	}
 	for _, expected := range []string{
+		`class="kpi-section"`,
+		`id="trend-legend"`,
+		"trend-legend-interactive",
+		"chart-host-interactive",
+		`id="event-reset"`,
+		`id="floating-tooltip"`,
 		"服务健康监测",
 		"最近5天，15分钟一个网格",
 		`id="health-success-count"`,
 		`id="health-failure-count"`,
-		"时间", "模型", "状态", "用时 / 首字", "非缓存输入",
-		"输出", "思考", "缓存命中", "缓存创建", "总计",
+		"时间", "模型 / 渠道", "推理强度", "端点", "状态", "用时 / 首字", "非缓存输入",
+		"输出", "思考", "缓存命中", "缓存创建", "总 Token",
 	} {
 		if !bytes.Contains(root.Body, []byte(expected)) {
 			t.Fatalf("dashboard HTML is missing %q", expected)
@@ -68,11 +78,38 @@ func TestDashboardAssetsAreEmbeddedAndSelfContained(t *testing.T) {
 	if bytes.Contains(js.Body, []byte("window.setInterval(refresh, AUTO_REFRESH_MS)")) {
 		t.Fatal("auto-refresh must be scheduled from request completion, not initialization time")
 	}
+	for _, forbidden := range []string{"if (state.loading) return;", "await loadEventOptions(force);"} {
+		if bytes.Contains(js.Body, []byte(forbidden)) {
+			t.Fatalf("dashboard JS retains stale-request or repeated-analysis behavior %q", forbidden)
+		}
+	}
+	for _, expected := range []string{"new AbortController()", "loadRequestID", "eventRequestID"} {
+		if !bytes.Contains(js.Body, []byte(expected)) {
+			t.Fatalf("dashboard JS is missing request race guard %q", expected)
+		}
+	}
+	for _, expected := range []string{"interface-card", "progress-cell", "buildClampedSmoothPath", "trendActiveDims"} {
+		if !bytes.Contains(js.Body, []byte(expected)) {
+			t.Fatalf("dashboard JS is missing sample interaction %q", expected)
+		}
+	}
 	css := serveDashboardAsset("/v0/resource/plugins/usage-keeper/style.css")
 	if css.StatusCode != http.StatusOK || css.Headers.Get("Content-Type") != "text/css; charset=utf-8" {
 		t.Fatalf("CSS asset response: %+v", css)
 	}
+	for _, expected := range []string{".interface-card", ".progress-cell", ".chart-host-interactive", ".floating-glass-tooltip"} {
+		if !bytes.Contains(css.Body, []byte(expected)) {
+			t.Fatalf("dashboard CSS is missing sample selector %q", expected)
+		}
+	}
 	if relative := serveDashboardAsset("/app.js"); relative.StatusCode != http.StatusOK {
 		t.Fatalf("relative asset route should be accepted: %+v", relative)
+	}
+	for name, body := range map[string][]byte{"HTML": root.Body, "JavaScript": js.Body, "CSS": css.Body} {
+		for _, forbidden := range []string{"MOCK_DATA", "MOCK_TREND_POINTS", "Math.random", "示例演示中", "示例环境"} {
+			if bytes.Contains(body, []byte(forbidden)) {
+				t.Fatalf("production %s contains demo marker %q", name, forbidden)
+			}
+		}
 	}
 }

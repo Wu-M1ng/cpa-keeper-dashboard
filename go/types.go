@@ -16,7 +16,7 @@ const (
 	pluginID             = "usage-keeper"
 )
 
-var pluginVersion = "1.0.9"
+var pluginVersion = "1.0.10"
 
 type envelope struct {
 	OK     bool            `json:"ok"`
@@ -400,6 +400,7 @@ type usageEvent struct {
 	ExecutorType        string `json:"executor_type,omitempty"`
 	Model               string `json:"model"`
 	Alias               string `json:"alias,omitempty"`
+	Endpoint            string `json:"endpoint,omitempty"`
 	APIKeyMask          string `json:"api_key"`
 	APIKeyHash          string `json:"api_key_hash"`
 	AuthID              string `json:"auth_id,omitempty"`

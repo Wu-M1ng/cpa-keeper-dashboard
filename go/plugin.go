@@ -6,12 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 var (
@@ -135,14 +137,13 @@ func (r *pluginRuntime) runWriter() {
 	r.configMu.RLock()
 	batchSize := r.config.BatchSize
 	flushEvery := r.config.flushInterval()
-	retentionDays := r.config.RetentionDays
 	r.configMu.RUnlock()
 
 	ticker := time.NewTicker(flushEvery)
 	defer ticker.Stop()
 	retentionTicker := time.NewTicker(24 * time.Hour)
 	defer retentionTicker.Stop()
-	_ = r.store.prune(retentionDays, time.Now().UTC())
+	_ = r.pruneExpired(time.Now().UTC())
 
 	batch := make([]usageEvent, 0, batchSize)
 	flush := func() {
@@ -176,9 +177,16 @@ func (r *pluginRuntime) runWriter() {
 			flush()
 		case now := <-retentionTicker.C:
 			flush()
-			_ = r.store.prune(retentionDays, now.UTC())
+			_ = r.pruneExpired(now.UTC())
 		}
 	}
+}
+
+func (r *pluginRuntime) pruneExpired(now time.Time) error {
+	r.configMu.RLock()
+	retentionDays := r.config.RetentionDays
+	r.configMu.RUnlock()
+	return r.store.prune(retentionDays, now)
 }
 
 func (r *pluginRuntime) close() {
@@ -250,6 +258,7 @@ func compactUsageRecord(record usageRecord, salt string) usageEvent {
 		ExecutorType: cleanDimension(record.ExecutorType, ""),
 		Model:        model,
 		Alias:        cleanDimension(record.Alias, ""),
+		Endpoint:     sanitizeEndpoint(record.Endpoint),
 		APIKeyMask:   apiMask,
 		APIKeyHash:   apiHash,
 		// Raw account identifiers are only used above to derive the upstream key.
@@ -298,6 +307,7 @@ func anonymousLabel(prefix, digest string) string {
 func normalizeEventForStorage(event *usageEvent, salt string) {
 	event.Provider = cleanDimension(event.Provider, "unknown")
 	event.Model = cleanDimension(event.Model, "unknown")
+	event.Endpoint = sanitizeEndpoint(event.Endpoint)
 	if event.APIKeyHash != "" && !isHexDigest(event.APIKeyHash, 16) {
 		event.APIKeyHash = shortHMAC(event.APIKeyHash, salt)
 	}
@@ -318,6 +328,37 @@ func normalizeEventForStorage(event *usageEvent, salt string) {
 	event.AuthIndex = ""
 	event.AuthType = ""
 	event.Failure = sanitizeFailure(event.Failure)
+}
+
+func sanitizeEndpoint(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return ""
+	}
+	path := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, parsed.Path)
+	segments := strings.Split(path, "/")
+	for i := range segments {
+		segments[i] = emailPattern.ReplaceAllString(segments[i], "[redacted-account]")
+		segments[i] = secretTokenPattern.ReplaceAllString(segments[i], "[redacted]")
+	}
+	path = strings.Join(segments, "/")
+	if len(path) <= 256 {
+		return path
+	}
+	path = path[:256]
+	for !utf8.ValidString(path) {
+		path = path[:len(path)-1]
+	}
+	return path
 }
 
 func preferredProviderCredential(authType, authID, authIndex string) string {

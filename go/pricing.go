@@ -170,6 +170,11 @@ func calculateCost(tokens tokenTotals, price modelPrice) float64 {
 	return units / 1_000_000
 }
 
+func calculateStandardCost(tokens tokenTotals, price modelPrice) float64 {
+	price.CacheReadPerMillion = price.InputPerMillion
+	return calculateCost(tokens, price)
+}
+
 func sortedPriceModels(prices map[string]modelPrice) []string {
 	models := make([]string, 0, len(prices))
 	for model := range prices {

@@ -73,6 +73,7 @@ func TestCompactUsageRecordMapsOfficialFieldsAndRedactsSecrets(t *testing.T) {
 		AuthIndex:    "4",
 		AuthType:     "oauth",
 		Source:       "openai",
+		Endpoint:     "/v1/chat/completions?api_key=plain-secret#fragment",
 		RequestedAt:  time.Unix(1_700_000_000, 0).UTC(),
 		Latency:      1250 * time.Millisecond,
 		TTFT:         220 * time.Millisecond,
@@ -96,6 +97,9 @@ func TestCompactUsageRecordMapsOfficialFieldsAndRedactsSecrets(t *testing.T) {
 	}
 	if event.CacheReadTokens != 40 || event.CacheCreationTokens != 3 || event.TotalTokens != 125 {
 		t.Fatalf("token fields not mapped: %+v", event)
+	}
+	if event.Endpoint != "/v1/chat/completions" {
+		t.Fatalf("endpoint = %q, want sanitized path", event.Endpoint)
 	}
 	if event.APIKeyHash == "" || strings.Contains(event.APIKeyMask, "abcdefghijk") {
 		t.Fatalf("API key was not masked: %+v", event)
@@ -151,6 +155,32 @@ func TestEnqueueDropsImmediatelyWhenQueueIsFull(t *testing.T) {
 	}
 	if r.accepted.Load() != 1 || r.dropped.Load() != 1 {
 		t.Fatalf("unexpected counters accepted=%d dropped=%d", r.accepted.Load(), r.dropped.Load())
+	}
+}
+
+func TestPruneExpiredUsesCurrentRetentionDays(t *testing.T) {
+	store := openTestStore(t)
+	now := time.Now().UTC()
+	if err := store.writeBatch([]usageEvent{fixtureEvent(now.Add(-48*time.Hour), "gpt", false, 1, 1)}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &pluginRuntime{config: runtimeConfig{RetentionDays: 1}, store: store}
+	runtime.configMu.Lock()
+	runtime.config.RetentionDays = 10
+	runtime.configMu.Unlock()
+	if err := runtime.pruneExpired(now); err != nil {
+		t.Fatal(err)
+	}
+	if count := store.status().EventCount; count != 1 {
+		t.Fatalf("dynamic retention pruned current data: count=%d", count)
+	}
+}
+
+func TestSanitizeEndpointRedactsSensitivePathSegments(t *testing.T) {
+	input := "https://proxy.local/v1/account%40example.com/sk-live-123456789/chat?api_key=secret#fragment"
+	want := "/v1/[redacted-account]/[redacted]/chat"
+	if got := sanitizeEndpoint(input); got != want {
+		t.Fatalf("sanitizeEndpoint() = %q, want %q", got, want)
 	}
 }
 
