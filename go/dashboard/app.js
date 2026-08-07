@@ -54,6 +54,9 @@
     bindTrendInteractiveLegend();
     bindHealthInteractivity();
     bindDistributionInteractivity();
+    window.addEventListener('resize', () => {
+      if (state.page === 'overview' && state.lastTrendPoints.length) renderTrend(state.lastTrendPoints);
+    });
     updateConnection(Boolean(state.managementKey));
     loadActivePage(true);
     startAutoRefresh();
@@ -419,7 +422,7 @@
       return `${index ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
     }).join(' ');
     const gradient = `spark-gradient-${id}`;
-    return `<svg class="sparkline-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${gradient}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity=".38"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><path d="${path} L ${width} ${height} L 0 ${height} Z" fill="url(#${gradient})"/><path d="${path}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+    return `<svg class="sparkline-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${gradient}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity=".38"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><path d="${path} L ${width} ${height - 1} L 0 ${height - 1} Z" fill="url(#${gradient})" stroke="none"/><path d="${path}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round"/></svg>`;
   }
 
   function renderKPIs(kpi, trend) {
@@ -463,16 +466,21 @@
 
   function renderTrend(rawPoints) {
     const host = $('#trend-chart');
-    const points = rawPoints.map((point) => ({
+    const normalizedPoints = rawPoints.map((point) => ({
       ...point,
       input: Number(point.input || 0), output: Number(point.output || 0),
       cache_write: Number(point.cache_write || 0), cache_read: Number(point.cache_read || 0),
       hit_rate: Number(point.hit_rate || 0), actual_cost: Number(point.actual_cost || point.cost_usd || 0),
       standard_cost: Number(point.standard_cost || 0),
     }));
+    const points = normalizedPoints.filter((point) => point.requests > 0 || point.tokens > 0 ||
+      point.input > 0 || point.output > 0 || point.cache_write > 0 || point.cache_read > 0 ||
+      point.reasoning > 0 || point.actual_cost > 0 || point.standard_cost > 0);
     state.lastTrendPoints = points;
     if (!points.length) return empty(host, '当前范围没有用量');
-    const width = 860, height = 340, left = 65, right = 55, top = 25, bottom = 45;
+    const styles = getComputedStyle(host);
+    const horizontalPadding = parseFloat(styles.paddingLeft || '0') + parseFloat(styles.paddingRight || '0');
+    const width = Math.max(720, Math.round(host.clientWidth - horizontalPadding)), height = 340, left = 65, right = 55, top = 25, bottom = 45;
     const plotWidth = width - left - right, plotHeight = height - top - bottom, zeroY = top + plotHeight;
     const active = state.trendActiveDims;
     const maxToken = Math.max(1, ...points.map((point) => Math.max(
@@ -500,7 +508,7 @@
       const pathPoints = points.map((point, index) => ({ x: x(index), y: dimension.rate ? rateY(point[dimension.key]) : tokenY(point[dimension.key]) }));
       const path = buildClampedSmoothPath(pathPoints, top, zeroY);
       if (dimension.area && pathPoints.length > 1) {
-        paths += `<defs><linearGradient id="area-gradient-cache" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${dimension.color}" stop-opacity=".18"/><stop offset="100%" stop-color="${dimension.color}" stop-opacity="0"/></linearGradient></defs><path d="${path} L ${pathPoints.at(-1).x} ${zeroY} L ${pathPoints[0].x} ${zeroY} Z" fill="url(#area-gradient-cache)" class="animated-area"/>`;
+        paths += `<defs><linearGradient id="area-gradient-cache" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${dimension.color}" stop-opacity=".18"/><stop offset="100%" stop-color="${dimension.color}" stop-opacity="0"/></linearGradient></defs><path d="${path} L ${pathPoints.at(-1).x} ${zeroY - 1} L ${pathPoints[0].x} ${zeroY - 1} Z" fill="url(#area-gradient-cache)" stroke="none" class="animated-area"/>`;
       }
       paths += `<path d="${path}" fill="none" stroke="${dimension.color}" stroke-width="2.5" ${dimension.dashed ? 'stroke-dasharray="5 5"' : ''} stroke-linecap="round" class="animated-line"/>`;
     });
@@ -772,7 +780,7 @@
         <td><span class="cell-main">${esc(formatDateTime(event.timestamp_ms))}</span></td>
         <td><span class="cell-main" title="${esc(event.model)}">${esc(event.model)}</span><span class="cell-sub" title="${esc(event.upstream_label)}">${esc(event.upstream_label)}</span></td>
         <td><span class="cell-main">${esc(event.reasoning_effort || '--')}</span></td>
-        <td><span class="cell-main" title="${esc(event.endpoint || '')}">${esc(event.endpoint || '--')}</span></td>
+        <td><span class="cell-main" title="${esc(event.endpoint || 'unknown')}">${esc(event.endpoint || 'unknown')}</span></td>
         <td><span class="status-badge ${event.failed ? 'is-failure' : ''}">${status}</span>${event.failure ? `<span class="cell-sub" title="${esc(event.failure)}">${esc(event.failure)}</span>` : ''}</td>
         <td class="numeric"><span class="cell-main">${formatDuration(event.latency_ms)}</span><span class="cell-sub">首字 ${ttft}</span></td>
         <td class="numeric">${formatInt(uncachedInputTokens)}</td>

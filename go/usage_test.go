@@ -176,9 +176,9 @@ func TestPruneExpiredUsesCurrentRetentionDays(t *testing.T) {
 	}
 }
 
-func TestSanitizeEndpointRedactsSensitivePathSegments(t *testing.T) {
+func TestSanitizeEndpointKeepsEndpointPathVisible(t *testing.T) {
 	input := "https://proxy.local/v1/account%40example.com/sk-live-123456789/chat?api_key=secret#fragment"
-	want := "/v1/[redacted-account]/[redacted]/chat"
+	want := "/v1/account@example.com/sk-live-123456789/chat"
 	if got := sanitizeEndpoint(input); got != want {
 		t.Fatalf("sanitizeEndpoint() = %q, want %q", got, want)
 	}

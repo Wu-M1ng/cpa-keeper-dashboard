@@ -267,6 +267,7 @@ main { min-width: 0; padding: 0 0 34px; }
 
 .sparkline-box { width: 100%; height: 48px; border-radius: 12px; background: color-mix(in srgb, var(--card-theme, var(--blue)) 7%, var(--surface-2)); border: 0; overflow: hidden; padding: 0; }
 .sparkline-svg { width: 100%; height: 100%; display: block; }
+.sparkline-svg path[fill^="url"] { stroke: none; }
 
 /* ---- 优化版趋势图：高级平滑动画与防溢出设计 ---- */
 .trend-panel {
@@ -337,6 +338,7 @@ main { min-width: 0; padding: 0 0 34px; }
 }
 
 .animated-area {
+  stroke: none;
   transition: opacity 0.4s ease;
   animation: areaFadeIn 0.8s ease-out forwards;
 }
@@ -436,25 +438,26 @@ main { min-width: 0; padding: 0 0 34px; }
 
 .table-section { margin-top: 16px; overflow: hidden; }
 .section-head { min-height: 78px; padding: 20px 22px; border-bottom: 1px solid var(--line); }
-.table-wrap { width: 100%; overflow: auto; }
+.table-wrap { width: 100%; overflow: hidden; }
 table { width: 100%; border-collapse: collapse; table-layout: auto; }
-.event-table { min-width: 1560px; }
+.event-table { table-layout: fixed; }
 .event-table th:nth-child(n+6), .event-table td:nth-child(n+6) { text-align: right; }
-.event-table th:first-child { width: 150px; }
-.event-table th:nth-child(2) { width: 200px; }
-.event-table th:nth-child(3) { width: 100px; }
-.event-table th:nth-child(4) { width: 180px; }
-.event-table th:nth-child(5) { width: 110px; }
-.event-table th:nth-child(4) { width: 130px; }
+.event-table th:first-child { width: 10%; }
+.event-table th:nth-child(2) { width: 13%; }
+.event-table th:nth-child(3) { width: 7%; }
+.event-table th:nth-child(4) { width: 11%; }
+.event-table th:nth-child(5) { width: 8%; }
+.event-table th:nth-child(6) { width: 9%; }
+.event-table th:nth-child(n+7) { width: 7%; }
 .price-table { min-width: 850px; }
-th, td { padding: 15px 20px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+th, td { padding: 15px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
 th { color: var(--muted); background: var(--surface-2); font-size: 10px; font-weight: 820; text-transform: uppercase; white-space: nowrap; }
-td { min-width: 100px; font-size: 12px; }
+td { min-width: 0; font-size: 12px; }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr { transition: background .14s ease; }
 tbody tr:hover { background: color-mix(in srgb, var(--blue) 4%, var(--surface)); }
-.cell-main { display: block; max-width: 320px; overflow: hidden; color: var(--text); font-weight: 760; white-space: nowrap; text-overflow: ellipsis; }
-.cell-sub { display: block; max-width: 360px; margin-top: 5px; overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; }
+.cell-main { display: block; max-width: 100%; overflow: hidden; color: var(--text); font-weight: 760; white-space: nowrap; text-overflow: ellipsis; }
+.cell-sub { display: block; max-width: 100%; margin-top: 5px; overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; }
 .numeric { text-align: right; font-variant-numeric: tabular-nums; }
 .status-badge { display: inline-flex; align-items: center; min-height: 25px; padding: 0 9px; border-radius: 999px; background: color-mix(in srgb, var(--green) 12%, var(--surface)); color: var(--green); font-size: 10px; font-weight: 820; white-space: nowrap; }
 .status-badge.is-failure { background: color-mix(in srgb, var(--red) 12%, var(--surface)); color: var(--red); }

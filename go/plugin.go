@@ -345,12 +345,6 @@ func sanitizeEndpoint(value string) string {
 		}
 		return r
 	}, parsed.Path)
-	segments := strings.Split(path, "/")
-	for i := range segments {
-		segments[i] = emailPattern.ReplaceAllString(segments[i], "[redacted-account]")
-		segments[i] = secretTokenPattern.ReplaceAllString(segments[i], "[redacted]")
-	}
-	path = strings.Join(segments, "/")
 	if len(path) <= 256 {
 		return path
 	}
