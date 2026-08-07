@@ -96,7 +96,7 @@
             <section class="panel token-panel"><div class="panel-head"><div><h2>Token 构成</h2><p>输入、输出、缓存与推理消耗</p></div><strong id="token-total">0</strong></div><div id="token-composition"></div></section>
             <section class="table-section">
               <div class="section-head"><div><h2>模型统计</h2><p>请求质量、消耗与成本</p></div></div>
-              <div class="table-wrap"><table><thead><tr><th scope="col">模型</th><th scope="col">请求</th><th scope="col">成功率</th><th scope="col">Token</th><th scope="col">平均延迟</th><th scope="col">费用</th></tr></thead><tbody id="model-table"></tbody></table></div>
+              <div class="table-wrap"><table class="model-table"><thead><tr><th scope="col">模型</th><th scope="col">请求</th><th scope="col">成功率</th><th scope="col">Token</th><th scope="col">平均延迟</th><th scope="col">费用</th></tr></thead><tbody id="model-table"></tbody></table></div>
             </section>
           </div>
           <div class="runtime-strip" id="runtime-strip"></div>
@@ -120,8 +120,8 @@
 
         <section class="page" data-page="interfaces">
           <div class="interface-summary" id="interface-summary"></div>
-          <section class="table-section"><div class="section-head"><div><h2>客户端 Key 分组</h2><p>匿名客户端调用分组汇总与负载占比</p></div></div><div class="table-wrap"><table><thead><tr><th scope="col">客户端 Key</th><th scope="col">绑定模型</th><th scope="col">调用次数与占比</th><th scope="col">成功率</th><th scope="col">Token</th><th scope="col">预估费用</th></tr></thead><tbody id="api-key-table"></tbody></table></div></section>
-          <section class="table-section"><div class="section-head"><div><h2>上游统计</h2><p>匿名 Provider 凭证分组与健康监控</p></div></div><div class="table-wrap"><table><thead><tr><th scope="col">上游分组名称</th><th scope="col">状态</th><th scope="col">关联模型</th><th scope="col">负载请求占比</th><th scope="col">成功率</th><th scope="col">平均延迟</th><th scope="col">Token</th><th scope="col">操作</th></tr></thead><tbody id="upstream-table"></tbody></table></div></section>
+          <section class="table-section"><div class="section-head"><div><h2>客户端 Key 分组</h2><p>匿名客户端调用分组汇总与负载占比</p></div></div><div class="table-wrap"><table class="api-key-table"><thead><tr><th scope="col">客户端 Key</th><th scope="col">绑定模型</th><th scope="col">调用次数与占比</th><th scope="col">成功率</th><th scope="col">Token</th><th scope="col">预估费用</th></tr></thead><tbody id="api-key-table"></tbody></table></div></section>
+          <section class="table-section"><div class="section-head"><div><h2>上游统计</h2><p>匿名 Provider 凭证分组与健康监控</p></div></div><div class="table-wrap"><table class="upstream-table"><thead><tr><th scope="col">上游分组名称</th><th scope="col">状态</th><th scope="col">关联模型</th><th scope="col">负载请求占比</th><th scope="col">成功率</th><th scope="col">平均延迟</th><th scope="col">Token</th><th scope="col">操作</th></tr></thead><tbody id="upstream-table"></tbody></table></div></section>
         </section>
 
         <section class="page" data-page="settings">

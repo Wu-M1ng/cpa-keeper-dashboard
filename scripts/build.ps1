@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Version = "1.0.12",
+  [string]$Version = "1.0.13",
   [string]$GoOS = $env:GOOS,
   [string]$GoArch = $env:GOARCH,
   [string]$OutputRoot = "release"

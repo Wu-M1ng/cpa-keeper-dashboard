@@ -56,6 +56,7 @@
     bindTrendInteractiveLegend();
     bindHealthInteractivity();
     bindDistributionInteractivity();
+    bindTokenInteractivity();
     window.addEventListener('resize', () => {
       if (state.page === 'overview' && state.lastTrendPoints.length) renderTrend(state.lastTrendPoints);
     });
@@ -441,17 +442,17 @@
     const rangeLabel = rangeLabels[kpi.range_label] || kpi.range_label || rangeLabels[state.range];
     $('#overview-kpis').innerHTML = `<div class="kpi-row-top">
       <article class="kpi-panel"><div class="kpi-header"><h3 class="kpi-title">日均用量</h3><span class="kpi-badge-pill">统计范围 ${esc(rangeLabel)}</span></div><div class="kpi-daily-list">
-        <div class="kpi-daily-item"><span class="kpi-daily-label"><i class="icon-blue">${icon('activity')}</i>日均请求</span><strong class="kpi-daily-val">${formatCompact(kpi.avg_requests_daily)}</strong></div>
-        <div class="kpi-daily-item"><span class="kpi-daily-label"><i class="icon-purple">${icon('diamond')}</i>日均 Token</span><strong class="kpi-daily-val">${formatCompact(kpi.avg_tokens_daily)}</strong></div>
-        <div class="kpi-daily-item"><span class="kpi-daily-label"><i class="icon-orange">${icon('dollar')}</i>日均费用</span><strong class="kpi-daily-val">${formatMoney(kpi.avg_cost_daily)}</strong></div>
+        <div class="kpi-daily-item"><span class="kpi-daily-label"><i class="icon-blue">${icon('activity')}</i>日均请求</span><strong class="kpi-daily-val kpi-num-animate">${formatCompact(kpi.avg_requests_daily)}</strong></div>
+        <div class="kpi-daily-item"><span class="kpi-daily-label"><i class="icon-purple">${icon('diamond')}</i>日均 Token</span><strong class="kpi-daily-val kpi-num-animate">${formatCompact(kpi.avg_tokens_daily)}</strong></div>
+        <div class="kpi-daily-item"><span class="kpi-daily-label"><i class="icon-orange">${icon('dollar')}</i>日均费用</span><strong class="kpi-daily-val kpi-num-animate">${formatMoney(kpi.avg_cost_daily)}</strong></div>
       </div></article>
-      <article class="kpi-panel theme-blue"><div class="kpi-header"><h3 class="kpi-title">总请求数</h3><div class="kpi-icon-badge theme-blue">${icon('activity')}</div></div><strong class="kpi-main-val">${formatInt(kpi.requests)}</strong><div class="kpi-sub-info"><span class="dot-success">成功: ${formatInt(kpi.successes)}</span><span class="dot-failed">失败: ${formatInt(kpi.failures)}</span><span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span></div><div class="sparkline-box" style="--card-theme:var(--blue)">${makeSparkline(trend, 'requests', '#326ff5', 'requests')}</div></article>
-      <article class="kpi-panel theme-purple"><div class="kpi-header"><h3 class="kpi-title">总 Token 消耗</h3><div class="kpi-icon-badge theme-purple">${icon('diamond')}</div></div><strong class="kpi-main-val">${formatCompact(kpi.total_tokens)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span><span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--purple)">${makeSparkline(trend, 'tokens', '#7738ee', 'tokens')}</div></article>
+      <article class="kpi-panel theme-blue"><div class="kpi-header"><h3 class="kpi-title">总请求数</h3><div class="kpi-icon-badge theme-blue">${icon('activity')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatInt(kpi.requests)}</strong><div class="kpi-sub-info"><span class="dot-success">成功: ${formatInt(kpi.successes)}</span><span class="dot-failed">失败: ${formatInt(kpi.failures)}</span><span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span></div><div class="sparkline-box" style="--card-theme:var(--blue)">${makeSparkline(trend, 'requests', '#326ff5', 'requests')}</div></article>
+      <article class="kpi-panel theme-purple"><div class="kpi-header"><h3 class="kpi-title">总 Token 消耗</h3><div class="kpi-icon-badge theme-purple">${icon('diamond')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatCompact(kpi.total_tokens)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span><span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--purple)">${makeSparkline(trend, 'tokens', '#7738ee', 'tokens')}</div></article>
     </div><div class="kpi-row-bottom">
-      <article class="kpi-panel theme-green"><div class="kpi-header"><h3 class="kpi-title">RPM（每分钟请求）</h3><div class="kpi-icon-badge theme-green">${icon('clock')}</div></div><strong class="kpi-main-val">${formatNumber(kpi.rpm, 2)}</strong><div class="kpi-sub-info"><span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span></div><div class="sparkline-box" style="--card-theme:var(--green)">${makeSparkline(trend, 'requests', '#20b95a', 'rpm')}</div></article>
-      <article class="kpi-panel theme-orange"><div class="kpi-header"><h3 class="kpi-title">TPM（每分钟 Token）</h3><div class="kpi-icon-badge theme-orange">${icon('trend-up')}</div></div><strong class="kpi-main-val">${formatCompact(kpi.tpm)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--orange)">${makeSparkline(trend, 'tokens', '#ff7a12', 'tpm')}</div></article>
-      <article class="kpi-panel theme-teal"><div class="kpi-header"><h3 class="kpi-title">缓存命中率</h3><div class="kpi-icon-badge theme-teal">${icon('percent')}</div></div><strong class="kpi-main-val">${formatPercent(kpi.cache_rate)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--teal)">${makeSparkline(trend, 'hit_rate', '#18ad9d', 'cache')}</div></article>
-      <article class="kpi-panel theme-yellow"><div class="kpi-header"><h3 class="kpi-title">总费用</h3><div class="kpi-icon-badge theme-yellow">${icon('dollar')}</div></div><strong class="kpi-main-val">${formatMoney(kpi.cost_usd)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--yellow)">${makeSparkline(trend, 'actual_cost', '#dda918', 'cost')}</div></article>
+      <article class="kpi-panel theme-green"><div class="kpi-header"><h3 class="kpi-title">RPM（每分钟请求）</h3><div class="kpi-icon-badge theme-green">${icon('clock')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatNumber(kpi.rpm, 2)}</strong><div class="kpi-sub-info"><span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span></div><div class="sparkline-box" style="--card-theme:var(--green)">${makeSparkline(trend, 'requests', '#20b95a', 'rpm')}</div></article>
+      <article class="kpi-panel theme-orange"><div class="kpi-header"><h3 class="kpi-title">TPM（每分钟 Token）</h3><div class="kpi-icon-badge theme-orange">${icon('trend-up')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatCompact(kpi.tpm)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--orange)">${makeSparkline(trend, 'tokens', '#ff7a12', 'tpm')}</div></article>
+      <article class="kpi-panel theme-teal"><div class="kpi-header"><h3 class="kpi-title">缓存命中率</h3><div class="kpi-icon-badge theme-teal">${icon('percent')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatPercent(kpi.cache_rate)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--teal)">${makeSparkline(trend, 'hit_rate', '#18ad9d', 'cache')}</div></article>
+      <article class="kpi-panel theme-yellow"><div class="kpi-header"><h3 class="kpi-title">总费用</h3><div class="kpi-icon-badge theme-yellow">${icon('dollar')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatMoney(kpi.cost_usd)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--yellow)">${makeSparkline(trend, 'actual_cost', '#dda918', 'cost')}</div></article>
     </div>`;
   }
 
@@ -594,14 +595,15 @@
 
   function renderRuntime(runtime) {
     const storage = runtime.storage || {};
+    const queueCapacity = runtime.queue_capacity || 256;
     const items = [
-      ['队列', `${formatInt(runtime.queue_depth)} / ${formatInt(runtime.queue_capacity)}`],
-      ['已接收', formatInt(runtime.accepted)],
-      ['已写入', formatInt(runtime.written)],
-      ['已丢弃', formatInt(runtime.dropped)],
-      ['最近批写', `${formatNumber(runtime.last_batch_ms, 2)} ms`],
+      ['队列', `${formatInt(runtime.queue_depth || 0)} / ${formatInt(queueCapacity)}`, '#7738ee'],
+      ['已接收', formatInt(runtime.accepted), '#326ff5'],
+      ['已写入', formatInt(runtime.written), '#20b95a'],
+      ['已丢弃', formatInt(runtime.dropped), '#e44e3f'],
+      ['最近批写', `${formatNumber(runtime.last_batch_ms, 2)} ms`, '#dda918'],
     ];
-    $('#runtime-strip').innerHTML = items.map(([label, value]) => `<div class="runtime-item"><span>${label}</span><strong>${value}</strong></div>`).join('');
+    $('#runtime-strip').innerHTML = items.map(([label, value, color]) => `<div class="runtime-item"><span><i class="runtime-item-dot" style="background:${color}"></i>${label}</span><strong>${value}</strong></div>`).join('');
     if (storage.last_error) toast(storage.last_error, true);
   }
 
@@ -648,19 +650,57 @@
     const regularInput = Math.max(0, (tokens.input || 0) - (tokens.cache_read || 0) - (tokens.cache_write || 0));
     const regularOutput = Math.max(0, (tokens.output || 0) - (tokens.reasoning || 0));
     const parts = [
-      ['输入', regularInput, 'var(--blue)'], ['输出', regularOutput, 'var(--orange)'],
-      ['缓存读取', tokens.cache_read || 0, 'var(--accent)'], ['缓存写入', tokens.cache_write || 0, 'var(--yellow)'],
-      ['推理', tokens.reasoning || 0, 'var(--red)'],
+      ['输入', regularInput, '#326ff5', '0'],
+      ['输出', regularOutput, '#20b95a', '1'],
+      ['缓存读取', tokens.cache_read || 0, '#7738ee', '2'],
+      ['缓存写入', tokens.cache_write || 0, '#ff7a12', '3'],
+      ['推理', tokens.reasoning || 0, '#e44e3f', '4'],
     ];
     const sum = parts.reduce((total, [, value]) => total + value, 0) || 1;
     $('#token-total').textContent = formatCompact(tokens.total || 0);
-    $('#token-composition').innerHTML = `<div class="token-stack">${parts.map(([, value, color]) => `<span style="width:${value/sum*100}%;background:${color}"></span>`).join('')}</div><div class="token-legend">${parts.map(([label, value, color]) => `<div class="token-legend-item" style="border-color:${color}"><span>${label}</span><strong>${formatCompact(value)}</strong></div>`).join('')}</div>`;
+
+    const stackItems = parts.map(([label, value, color, idx]) => {
+      const pct = (value / sum * 100).toFixed(1);
+      return `<span class="token-stack-segment" data-idx="${idx}" data-name="${label}" data-val="${formatInt(value)}" data-compact="${formatCompact(value)}" data-pct="${pct}%" data-color="${color}" style="width:${pct}%;background:${color}"></span>`;
+    }).join('');
+
+    const legendItems = parts.map(([label, value, color, idx]) => {
+      const pct = (value / sum * 100).toFixed(1);
+      return `<div class="token-legend-item" data-idx="${idx}" data-name="${label}" data-val="${formatInt(value)}" data-compact="${formatCompact(value)}" data-pct="${pct}%" data-color="${color}" style="border-color:${color}"><span>${label}</span><strong>${formatCompact(value)}</strong></div>`;
+    }).join('');
+
+    $('#token-composition').innerHTML = `<div class="token-stack">${stackItems}</div><div class="token-legend">${legendItems}</div>`;
+  }
+
+  function bindTokenInteractivity() {
+    const container = $('#token-composition');
+    const tooltip = $('#floating-tooltip');
+    container.addEventListener('mouseover', (event) => {
+      const item = event.target.closest('.token-stack-segment, .token-legend-item');
+      if (!item) return;
+      const { idx, name, val, compact, pct, color } = item.dataset;
+      container.classList.add('has-hover');
+      container.querySelectorAll('.token-stack-segment, .token-legend-item').forEach((el) => {
+        el.classList.toggle('is-active', el.dataset.idx === idx);
+      });
+      tooltip.innerHTML = `<div class="fgt-title" style="color:${color}">${esc(name)} Token</div>
+        <div class="fgt-row"><span>用量占比</span><strong>${esc(pct)}</strong></div>
+        <div class="fgt-row"><span>Token 消耗</span><strong>${esc(val)} (${esc(compact)})</strong></div>`;
+      tooltip.classList.add('is-visible');
+    });
+    container.addEventListener('mousemove', (event) => positionFloatingTooltip(tooltip, event));
+    container.addEventListener('mouseout', (event) => {
+      if (container.contains(event.relatedTarget)) return;
+      container.classList.remove('has-hover');
+      container.querySelectorAll('.token-stack-segment, .token-legend-item').forEach((el) => el.classList.remove('is-active'));
+      tooltip.classList.remove('is-visible');
+    });
   }
 
   function renderModelTable(models) {
     const body = $('#model-table');
     if (!models.length) return emptyRow(body, 6);
-    body.innerHTML = models.map((item) => `<tr><td><span class="cell-main">${esc(item.name)}</span></td><td class="numeric">${formatInt(item.requests)}</td><td>${statusBadge(item.success_rate)}</td><td class="numeric">${formatCompact(item.total_tokens)}</td><td class="numeric">${formatDuration(item.avg_latency_ms)}</td><td class="numeric">${formatMoney(item.cost_usd)}</td></tr>`).join('');
+    body.innerHTML = models.map((item) => `<tr><td><span class="cell-main" title="${esc(item.name)}">${esc(item.name)}</span></td><td class="text-center">${formatInt(item.requests)}</td><td class="text-center">${statusBadge(item.success_rate)}</td><td class="text-center">${formatCompact(item.total_tokens)}</td><td class="text-center">${formatDuration(item.avg_latency_ms)}</td><td class="text-center">${formatMoney(item.cost_usd)}</td></tr>`).join('');
   }
 
   async function loadInterfaces(force, signal, requestID) {
@@ -689,7 +729,7 @@
     const total = items.reduce((sum, item) => sum + Number(item.requests || 0), 0) || 1;
     body.innerHTML = items.map((item) => {
       const percentage = Math.min(100, Number(item.requests || 0) / total * 100);
-      return `<tr><td><span class="cell-main" style="font-family:monospace">${esc(item.name || '未识别')}</span></td><td class="numeric">${formatInt(item.models)} 个模型</td><td><div class="progress-cell"><span>${formatInt(item.requests)} <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--blue)"></div></div></div></td><td>${statusBadge(item.success_rate)}</td><td class="numeric">${formatCompact(item.total_tokens)}</td><td class="numeric"><strong>${formatMoney(item.cost_usd)}</strong></td></tr>`;
+      return `<tr><td><span class="cell-main" style="font-family:monospace">${esc(item.name || '未识别')}</span></td><td>${formatInt(item.models)} 个模型</td><td><div class="progress-cell"><span>${formatInt(item.requests)} <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--blue)"></div></div></div></td><td>${statusBadge(item.success_rate)}</td><td>${formatCompact(item.total_tokens)}</td><td><strong>${formatMoney(item.cost_usd)}</strong></td></tr>`;
     }).join('');
   }
 
@@ -701,7 +741,7 @@
       const percentage = Math.min(100, Number(item.requests || 0) / total * 100);
       const rate = Number(item.success_rate || 0);
       const healthLabel = rate >= .98 ? '正常在线' : rate >= .9 ? '轻微波动' : '需要关注';
-      return `<tr><td><span class="cell-main">${esc(item.name || '未识别')}</span></td><td><span class="status-badge ${rate < .9 ? 'is-failure' : ''}">${healthLabel}</span></td><td class="numeric">${formatInt(item.models)} 个模型</td><td><div class="progress-cell"><span>${formatInt(item.requests)} <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--purple)"></div></div></div></td><td>${statusBadge(rate)}</td><td class="numeric">${formatDuration(item.avg_latency_ms)}</td><td class="numeric">${formatCompact(item.total_tokens)}</td><td><button class="secondary-button compact-btn" data-upstream="${esc(item.key)}">${icon('eye')}详情</button></td></tr>`;
+      return `<tr><td><span class="cell-main">${esc(item.name || '未识别')}</span></td><td><span class="status-badge ${rate < .9 ? 'is-failure' : ''}">${healthLabel}</span></td><td>${formatInt(item.models)} 个模型</td><td><div class="progress-cell"><span>${formatInt(item.requests)} <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--purple)"></div></div></div></td><td>${statusBadge(rate)}</td><td>${formatDuration(item.avg_latency_ms)}</td><td>${formatCompact(item.total_tokens)}</td><td><button class="secondary-button compact-btn" data-upstream="${esc(item.key)}">${icon('eye')}详情</button></td></tr>`;
     }).join('');
   }
 
@@ -790,15 +830,15 @@
       return `<tr>
         <td><span class="cell-main">${esc(formatDateTime(event.timestamp_ms))}</span></td>
         <td><span class="cell-main" title="${esc(event.model)}">${esc(event.model)}</span><span class="cell-sub" title="${esc(event.upstream_label)}">${esc(event.upstream_label)}</span></td>
-        <td><span class="cell-main">${esc(event.reasoning_effort || '--')}</span></td>
-        <td><span class="status-badge ${event.failed ? 'is-failure' : ''}">${status}</span>${event.failure ? `<span class="cell-sub" title="${esc(event.failure)}">${esc(event.failure)}</span>` : ''}</td>
-        <td class="numeric"><span class="cell-main">${formatDuration(event.latency_ms)}</span><span class="cell-sub">首字 ${ttft}</span></td>
-        <td class="numeric">${formatInt(uncachedInputTokens)}</td>
-        <td class="numeric">${formatInt(event.output_tokens)}</td>
-        <td class="numeric">${formatInt(event.reasoning_tokens)}</td>
-        <td class="numeric">${formatInt(cacheReadTokens)}</td>
-        <td class="numeric">${formatInt(cacheCreationTokens)}</td>
-        <td class="numeric"><strong>${formatInt(event.total_tokens)}</strong></td>
+        <td class="text-center"><span class="cell-main">${esc(event.reasoning_effort || '--')}</span></td>
+        <td class="text-center"><span class="status-badge ${event.failed ? 'is-failure' : ''}">${status}</span>${event.failure ? `<span class="cell-sub" title="${esc(event.failure)}">${esc(event.failure)}</span>` : ''}</td>
+        <td class="text-center"><span class="cell-main">${formatDuration(event.latency_ms)}</span><span class="cell-sub">首字 ${ttft}</span></td>
+        <td class="text-center">${formatInt(uncachedInputTokens)}</td>
+        <td class="text-center">${formatInt(event.output_tokens)}</td>
+        <td class="text-center">${formatInt(event.reasoning_tokens)}</td>
+        <td class="text-center">${formatInt(cacheReadTokens)}</td>
+        <td class="text-center">${formatInt(cacheCreationTokens)}</td>
+        <td class="text-center"><strong>${formatInt(event.total_tokens)}</strong></td>
       </tr>`;
     }).join('');
   }
