@@ -181,7 +181,7 @@ func TestStorageMigratesEndpointColumnWithoutLosingEvents(t *testing.T) {
 func TestStorageAppliesConnectionPragmasToEntirePool(t *testing.T) {
 	store := openTestStore(t)
 	connections := make([]*sql.Conn, 0, 4)
-	for i := 0; i < 4; i++ {
+	for i := 0; i < sqliteMaxOpenConnections; i++ {
 		connection, err := store.db.Conn(context.Background())
 		if err != nil {
 			t.Fatal(err)
@@ -195,7 +195,7 @@ func TestStorageAppliesConnectionPragmasToEntirePool(t *testing.T) {
 	}()
 
 	for index, connection := range connections {
-		var busyTimeout, synchronous, tempStore int
+		var busyTimeout, synchronous, tempStore, cacheSize, pageSize int
 		if err := connection.QueryRowContext(context.Background(), "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
 			t.Fatal(err)
 		}
@@ -205,8 +205,14 @@ func TestStorageAppliesConnectionPragmasToEntirePool(t *testing.T) {
 		if err := connection.QueryRowContext(context.Background(), "PRAGMA temp_store").Scan(&tempStore); err != nil {
 			t.Fatal(err)
 		}
-		if busyTimeout != 2000 || synchronous != 1 || tempStore != 2 {
-			t.Fatalf("connection %d pragmas busy=%d synchronous=%d temp_store=%d", index, busyTimeout, synchronous, tempStore)
+		if err := connection.QueryRowContext(context.Background(), "PRAGMA cache_size").Scan(&cacheSize); err != nil {
+			t.Fatal(err)
+		}
+		if err := connection.QueryRowContext(context.Background(), "PRAGMA page_size").Scan(&pageSize); err != nil {
+			t.Fatal(err)
+		}
+		if busyTimeout != 2000 || synchronous != 1 || tempStore != 1 || cacheSize != -sqliteCacheKiBPerConnection || pageSize != sqlitePageSizeKiB*1024 {
+			t.Fatalf("connection %d pragmas busy=%d synchronous=%d temp_store=%d cache_size=%d page_size=%d", index, busyTimeout, synchronous, tempStore, cacheSize, pageSize)
 		}
 	}
 }

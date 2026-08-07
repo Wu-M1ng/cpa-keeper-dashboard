@@ -62,7 +62,7 @@ func TestUsageHandleAcceptsLegacyPascalCaseJSON(t *testing.T) {
 	}
 }
 
-func TestCompactUsageRecordMapsOfficialFieldsAndRedactsSecrets(t *testing.T) {
+func TestCompactUsageRecordMapsOfficialFieldsAndMasksIdentifiers(t *testing.T) {
 	record := usageRecord{
 		Provider:     "codex",
 		ExecutorType: "oauth",
@@ -110,9 +110,8 @@ func TestCompactUsageRecordMapsOfficialFieldsAndRedactsSecrets(t *testing.T) {
 	if strings.Contains(event.UpstreamLabel, "123456789") || strings.Contains(event.Source, "openai") {
 		t.Fatalf("account or source identity was not anonymized: %+v", event)
 	}
-	if strings.Contains(event.Failure, "secret-token") || strings.Contains(event.Failure, "sk-live") ||
-		strings.Contains(event.Failure, "plain-secret") || strings.Contains(event.Failure, "account@example.com") {
-		t.Fatalf("failure leaked a secret: %q", event.Failure)
+	if event.Failure != record.Failure.Body {
+		t.Fatalf("failure text = %q, want unchanged bounded text", event.Failure)
 	}
 	if event.UpstreamKey == "" || event.UpstreamLabel == "" {
 		t.Fatalf("upstream identity missing: %+v", event)
@@ -181,6 +180,17 @@ func TestSanitizeEndpointKeepsEndpointPathVisible(t *testing.T) {
 	want := "/v1/account@example.com/sk-live-123456789/chat"
 	if got := sanitizeEndpoint(input); got != want {
 		t.Fatalf("sanitizeEndpoint() = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeFailureOnlyBoundsAndCleansControls(t *testing.T) {
+	input := "  account@example.com Bearer secret-token\n" + strings.Repeat("x", 600)
+	got := sanitizeFailure(input)
+	if strings.Contains(got, "\n") || !strings.Contains(got, "account@example.com") || !strings.Contains(got, "secret-token") {
+		t.Fatalf("failure text was unexpectedly redacted or retained controls: %q", got)
+	}
+	if len(got) > 512 {
+		t.Fatalf("failure text length = %d, want at most 512", len(got))
 	}
 }
 

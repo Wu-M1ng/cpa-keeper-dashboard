@@ -16,6 +16,12 @@ func TestParseConfigAcceptsCPAPluginConfigFields(t *testing.T) {
 	}
 }
 
+func TestDefaultQueueSizeIsBounded(t *testing.T) {
+	if cfg := defaultConfig(); cfg.QueueSize != 256 {
+		t.Fatalf("default queue size = %d, want 256", cfg.QueueSize)
+	}
+}
+
 func TestParseConfigRejectsInvalidBounds(t *testing.T) {
 	if _, err := parseConfig([]byte("queue_size: 8\n")); err == nil {
 		t.Fatal("small queue should be rejected")

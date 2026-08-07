@@ -3,6 +3,8 @@
 
   const API_ROOT = '/v0/management/plugins/usage-keeper';
   const AUTO_REFRESH_MS = 30_000;
+  const FRONTEND_CACHE_TTL_MS = 30_000;
+  const FRONTEND_CACHE_MAX_ITEMS = 32;
   const HEALTH_DAYS = 5;
   const HEALTH_SLOTS_PER_DAY = 96;
   const COLORS = ['#326ff5', '#7738ee', '#20b95a', '#ff7a12', '#18ad9d', '#e44e3f'];
@@ -70,9 +72,12 @@
   function handleVisibilityChange() {
     if (document.visibilityState !== 'visible') {
       cancelAutoRefresh();
+      state.loadController?.abort();
+      state.eventController?.abort();
       return;
     }
-    scheduleAutoRefresh();
+    if (state.managementKey && state.page !== 'settings') loadActivePage(false);
+    else scheduleAutoRefresh();
   }
 
   function cancelAutoRefresh() {
@@ -99,7 +104,7 @@
       scheduleAutoRefresh(1_000);
       return;
     }
-    await loadActivePage(true);
+    await loadActivePage(false);
   }
 
   function bindTheme() {
@@ -325,11 +330,17 @@
   }
 
   async function cached(path, force = false, signal) {
-    const key = `${path}|${state.range}`;
-    if (!force && state.cache.has(key)) return state.cache.get(key);
-    const separator = path.includes('?') ? '&' : '?';
-    const data = await api(`${path}${separator}range=${encodeURIComponent(state.range)}`, { signal });
-    state.cache.set(key, data);
+    const requestURL = new URL(path, window.location.origin);
+    if (!requestURL.searchParams.has('range')) requestURL.searchParams.set('range', state.range);
+    const requestPath = requestURL.pathname + requestURL.search;
+    const entry = state.cache.get(requestPath);
+    if (!force && entry && entry.expiresAt > Date.now()) return entry.data;
+    if (entry) state.cache.delete(requestPath);
+    const data = await api(requestPath, { signal });
+    while (state.cache.size >= FRONTEND_CACHE_MAX_ITEMS) {
+      state.cache.delete(state.cache.keys().next().value);
+    }
+    state.cache.set(requestPath, { data, expiresAt: Date.now() + FRONTEND_CACHE_TTL_MS });
     return data;
   }
 
@@ -391,7 +402,7 @@
     const [summary, analysis, events] = await Promise.all([
       cached('/summary', force, signal),
       cached('/analysis', force, signal),
-      api(`/events?${params}`, { signal }),
+      cached(`/events?${params}`, force, signal),
     ]);
     if (requestID !== state.loadRequestID || signal.aborted) return;
     renderKPIs(summary.kpi || {}, summary.trend || []);
@@ -728,14 +739,14 @@
     if (restoreFocus && returnFocus?.isConnected) returnFocus.focus();
   }
 
-  async function loadEvents() {
+  async function loadEvents(force = false) {
     state.eventController?.abort();
     const controller = new AbortController();
     const requestID = ++state.eventRequestID;
     state.eventController = controller;
     const params = eventParams();
     try {
-      const data = await api(`/events?${params}`, { signal: controller.signal });
+      const data = await cached(`/events?${params}`, force, controller.signal);
       if (requestID !== state.eventRequestID || controller.signal.aborted) return;
       state.eventPages = data.pages || 0;
       renderEvents(data);
@@ -768,7 +779,7 @@
     $('#page-label').textContent = data.pages ? `第 ${data.page} / ${data.pages} 页` : '第 0 页';
     $('#page-prev').disabled = data.page <= 1;
     $('#page-next').disabled = !data.pages || data.page >= data.pages;
-    if (!(data.events || []).length) return emptyRow(body, 12);
+    if (!(data.events || []).length) return emptyRow(body, 11);
     body.innerHTML = data.events.map((event) => {
       const inputTokens = Math.max(0, Number(event.input_tokens || 0));
       const cacheReadTokens = Math.max(0, Number(event.cache_read_tokens || event.cached_tokens || 0));
@@ -780,7 +791,6 @@
         <td><span class="cell-main">${esc(formatDateTime(event.timestamp_ms))}</span></td>
         <td><span class="cell-main" title="${esc(event.model)}">${esc(event.model)}</span><span class="cell-sub" title="${esc(event.upstream_label)}">${esc(event.upstream_label)}</span></td>
         <td><span class="cell-main">${esc(event.reasoning_effort || '--')}</span></td>
-        <td><span class="cell-main" title="${esc(event.endpoint || 'unknown')}">${esc(event.endpoint || 'unknown')}</span></td>
         <td><span class="status-badge ${event.failed ? 'is-failure' : ''}">${status}</span>${event.failure ? `<span class="cell-sub" title="${esc(event.failure)}">${esc(event.failure)}</span>` : ''}</td>
         <td class="numeric"><span class="cell-main">${formatDuration(event.latency_ms)}</span><span class="cell-sub">首字 ${ttft}</span></td>
         <td class="numeric">${formatInt(uncachedInputTokens)}</td>

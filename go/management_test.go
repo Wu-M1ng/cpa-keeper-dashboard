@@ -12,7 +12,7 @@ func withTestRuntime(t *testing.T) (*pluginRuntime, time.Time) {
 	t.Helper()
 	store, now := seededQueryStore(t)
 	cfg := defaultConfig()
-	runtime := &pluginRuntime{config: cfg, store: store, queue: make(chan usageEvent, 8), started: now}
+	runtime := &pluginRuntime{config: cfg, store: store, queue: make(chan usageEvent, 8), readCache: newManagementReadCache(), started: now}
 	runtimeMu.Lock()
 	previous := activeRuntime
 	activeRuntime = runtime

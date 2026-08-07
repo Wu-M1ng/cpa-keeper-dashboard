@@ -7,7 +7,7 @@ plugins:
       priority: 10
       storage_enabled: true
       storage_path: "data/usage-keeper.db"
-      queue_size: 2048
+      queue_size: 256
       batch_size: 64
       flush_interval_ms: 250
       retention_days: 30

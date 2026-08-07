@@ -16,6 +16,13 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+const (
+	sqlitePageSizeKiB           = 4
+	sqliteCacheKiBPerConnection = 8 * 1024
+	sqliteMaxOpenConnections    = 4
+	sqliteMaxIdleConnections    = 2
+)
+
 type eventStore struct {
 	db       *sql.DB
 	enabled  bool
@@ -40,8 +47,8 @@ func openEventStore(cfg runtimeConfig) (*eventStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(4)
-	db.SetMaxIdleConns(2)
+	db.SetMaxOpenConns(sqliteMaxOpenConnections)
+	db.SetMaxIdleConns(sqliteMaxIdleConnections)
 	store := &eventStore{db: db, enabled: cfg.StorageEnabled, path: path, hashSalt: cfg.APIKeyHashSalt}
 	if err := store.initialize(); err != nil {
 		_ = db.Close()
@@ -58,7 +65,9 @@ func withConnectionPragmas(dsn string) string {
 	query := url.Values{}
 	query.Add("_pragma", "busy_timeout(2000)")
 	query.Add("_pragma", "synchronous(NORMAL)")
-	query.Add("_pragma", "temp_store(MEMORY)")
+	query.Add("_pragma", "temp_store(FILE)")
+	query.Add("_pragma", "cache_size(-8192)")
+	query.Add("_pragma", "page_size(4096)")
 	return dsn + separator + query.Encode()
 }
 
@@ -66,10 +75,12 @@ func (s *eventStore) initialize() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, statement := range []string{
+		"PRAGMA page_size=4096",
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA synchronous=NORMAL",
 		"PRAGMA busy_timeout=2000",
-		"PRAGMA temp_store=MEMORY",
+		"PRAGMA temp_store=FILE",
+		"PRAGMA cache_size=-8192",
 		`CREATE TABLE IF NOT EXISTS usage_events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			timestamp_ms INTEGER NOT NULL,

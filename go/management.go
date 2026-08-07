@@ -47,14 +47,20 @@ func handleManagement(request managementRequest) managementResponse {
 
 	switch request.Method + " " + request.Path {
 	case http.MethodGet + " " + managementPrefix + "/summary":
-		result, err := querySummary(ctx, runtime.store, request.Query, now)
-		return queryJSON(result, err)
+		return runtime.cachedRead(managementCacheKey(request), func() managementResponse {
+			result, err := querySummary(ctx, runtime.store, request.Query, now)
+			return queryJSON(result, err)
+		})
 	case http.MethodGet + " " + managementPrefix + "/analysis":
-		result, err := queryAnalysis(ctx, runtime.store, request.Query, now)
-		return queryJSON(result, err)
+		return runtime.cachedRead(managementCacheKey(request), func() managementResponse {
+			result, err := queryAnalysis(ctx, runtime.store, request.Query, now)
+			return queryJSON(result, err)
+		})
 	case http.MethodGet + " " + managementPrefix + "/interfaces":
-		result, err := queryInterfaces(ctx, runtime.store, request.Query, now)
-		return queryJSON(result, err)
+		return runtime.cachedRead(managementCacheKey(request), func() managementResponse {
+			result, err := queryInterfaces(ctx, runtime.store, request.Query, now)
+			return queryJSON(result, err)
+		})
 	case http.MethodGet + " " + managementPrefix + "/upstream":
 		result, err := queryUpstreamDetail(ctx, runtime.store, request.Query.Get("key"), request.Query, now)
 		return queryJSON(result, err)
@@ -86,7 +92,11 @@ func handleManagement(request managementRequest) managementResponse {
 		prices, err := listPrices(ctx, runtime.store)
 		return queryJSON(map[string]any{"prices": prices}, err)
 	case http.MethodPut + " " + managementPrefix + "/prices":
-		return updatePrices(ctx, runtime.store, request.Body)
+		response := updatePrices(ctx, runtime.store, request.Body)
+		if response.StatusCode == http.StatusOK {
+			runtime.readCache.clear()
+		}
+		return response
 	case http.MethodGet + " " + managementPrefix + "/backup":
 		runtime.configMu.RLock()
 		maxRecords := runtime.config.ExportMax
@@ -103,10 +113,17 @@ func handleManagement(request managementRequest) managementResponse {
 			return errorResponse(http.StatusBadRequest, "invalid_backup", "备份 JSON 无效")
 		}
 		result, err := importBackup(ctx, runtime.store, payload)
+		if err == nil {
+			runtime.readCache.clear()
+		}
 		return queryJSON(result, err)
 	default:
 		return errorResponse(http.StatusNotFound, "not_found", "route not found")
 	}
+}
+
+func managementCacheKey(request managementRequest) string {
+	return request.Method + " " + request.Path + "?range=" + request.Query.Get("range")
 }
 
 func isResourcePath(path string) bool {
@@ -207,6 +224,7 @@ func updateSettings(ctx context.Context, runtime *pluginRuntime, body []byte) ma
 		return internalError()
 	}
 	_ = runtime.store.prune(cfg.RetentionDays, time.Now().UTC())
+	runtime.readCache.clear()
 	return jsonResponse(http.StatusOK, currentSettings(runtime))
 }
 

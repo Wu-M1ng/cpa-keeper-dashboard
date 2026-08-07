@@ -102,7 +102,7 @@
           <div class="runtime-strip" id="runtime-strip"></div>
           <div class="overview-section event-section">
             <form class="filter-bar" id="event-filters" aria-label="请求明细筛选">
-              <label><span>搜索</span><input name="q" type="search" placeholder="输入模型、渠道、端点或关键字"></label>
+              <label><span>搜索</span><input name="q" type="search" placeholder="输入模型、渠道或关键字"></label>
               <label><span>Provider</span><select name="provider"><option value="">全部</option></select></label>
               <label><span>模型</span><select name="model"><option value="">全部</option></select></label>
               <label><span>状态</span><select name="status"><option value="">全部</option><option value="success">成功</option><option value="failure">失败</option></select></label>
@@ -112,7 +112,7 @@
             </form>
             <section class="table-section event-table-section">
               <div class="section-head"><div><h2>请求明细记录</h2><p id="event-count">0 条记录</p></div></div>
-              <div class="table-wrap"><table class="event-table"><thead><tr><th scope="col">时间</th><th scope="col">模型 / 渠道</th><th scope="col">推理强度</th><th scope="col">端点</th><th scope="col">状态</th><th scope="col">用时 / 首字</th><th scope="col">非缓存输入</th><th scope="col">输出</th><th scope="col">思考</th><th scope="col">缓存命中</th><th scope="col">缓存创建</th><th scope="col">总 Token</th></tr></thead><tbody id="event-table"></tbody></table></div>
+              <div class="table-wrap"><table class="event-table"><thead><tr><th scope="col">时间</th><th scope="col">模型 / 渠道</th><th scope="col">推理强度</th><th scope="col">状态</th><th scope="col">用时 / 首字</th><th scope="col">非缓存输入</th><th scope="col">输出</th><th scope="col">思考</th><th scope="col">缓存命中</th><th scope="col">缓存创建</th><th scope="col">总 Token</th></tr></thead><tbody id="event-table"></tbody></table></div>
               <div class="pagination"><button id="page-prev" class="icon-button" title="上一页" aria-label="上一页"><svg><use href="#i-chevron-left"/></svg></button><span id="page-label">第 1 页</span><button id="page-next" class="icon-button" title="下一页" aria-label="下一页"><svg><use href="#i-chevron-right"/></svg></button></div>
             </section>
           </div>

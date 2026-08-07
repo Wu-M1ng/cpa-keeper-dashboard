@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	defaultQueueSize       = 2048
+	defaultQueueSize       = 256
 	defaultBatchSize       = 64
 	defaultFlushIntervalMS = 250
 	defaultRetentionDays   = 30

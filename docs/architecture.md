@@ -16,7 +16,7 @@
 CPA completed usage record
   -> ABI JSON decode
   -> compactUsageRecord
-  -> bounded channel (default 2048)
+  -> bounded channel (default 256)
   -> return {}
 ```
 
@@ -26,7 +26,9 @@ CPA completed usage record
 
 `usage_events` 是分页和导出的明细表，`usage_minute_rollups` 是趋势、分布和 KPI 的查询表。每个批次在一个短事务中同时写入事件和 rollup，避免统计与明细出现半批状态。
 
-API Key 原文不落库。界面只展示缩略值，分组使用 HMAC-SHA256 截短值。失败文本限制为 512 字节并清理常见 Bearer、`sk-`、`token=` 等片段。
+API Key 原文不落库。界面只展示缩略值，分组使用 HMAC-SHA256 截短值。失败文本仅清理控制字符并限制为 512 字节，不执行正则替换。
+
+聚合查询使用 4 秒有界内存缓存并合并并发 miss。SQLite 最多打开 4 个连接，每个连接的页缓存约 8 MiB；临时表使用文件存储，新数据库页大小为 4096 字节。
 
 ## 页面路由
 

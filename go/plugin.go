@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,19 +18,15 @@ import (
 var (
 	runtimeMu     sync.RWMutex
 	activeRuntime *pluginRuntime
-
-	sensitiveAssignmentPattern = regexp.MustCompile(`(?i)\b(api[_-]?key|authorization|token|secret|password)\b\s*[:=]\s*[^\s,;]+`)
-	bearerTokenPattern         = regexp.MustCompile(`(?i)\bbearer\s+[^\s,;]+`)
-	secretTokenPattern         = regexp.MustCompile(`(?i)\b(?:sk|rk|pk|sess|token)-[a-z0-9._-]{6,}\b`)
-	emailPattern               = regexp.MustCompile(`(?i)\b[a-z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+\b`)
 )
 
 type pluginRuntime struct {
-	configMu sync.RWMutex
-	config   runtimeConfig
-	store    *eventStore
-	queue    chan usageEvent
-	started  time.Time
+	configMu  sync.RWMutex
+	config    runtimeConfig
+	store     *eventStore
+	queue     chan usageEvent
+	readCache *managementReadCache
+	started   time.Time
 
 	queueMu sync.RWMutex
 	closed  bool
@@ -68,11 +63,12 @@ func newPluginRuntime(cfg runtimeConfig) (*pluginRuntime, error) {
 	cfg.RetentionDays = store.loadIntSetting("retention_days", cfg.RetentionDays)
 	cfg.ExportMax = store.loadIntSetting("export_max_records", cfg.ExportMax)
 	r := &pluginRuntime{
-		config:  cfg,
-		store:   store,
-		queue:   make(chan usageEvent, cfg.QueueSize),
-		started: time.Now().UTC(),
-		done:    make(chan struct{}),
+		config:    cfg,
+		store:     store,
+		queue:     make(chan usageEvent, cfg.QueueSize),
+		readCache: newManagementReadCache(),
+		started:   time.Now().UTC(),
+		done:      make(chan struct{}),
 	}
 	go r.runWriter()
 	return r, nil
@@ -111,6 +107,10 @@ func handleUsage(raw []byte) []byte {
 }
 
 func (r *pluginRuntime) enqueue(record usageRecord) bool {
+	if len(r.queue) >= cap(r.queue) {
+		r.dropped.Add(1)
+		return false
+	}
 	r.configMu.RLock()
 	salt := r.config.APIKeyHashSalt
 	r.configMu.RUnlock()
@@ -156,6 +156,7 @@ func (r *pluginRuntime) runWriter() {
 			r.writeFailures.Add(1)
 		} else {
 			r.written.Add(uint64(count))
+			r.readCache.clear()
 		}
 		r.lastBatchSize.Store(int64(count))
 		r.lastBatchNS.Store(time.Since(started).Nanoseconds())
@@ -454,32 +455,19 @@ func cleanDimension(value, fallback string) string {
 }
 
 func sanitizeFailure(value string) string {
-	value = cleanDimension(value, "")
+	value = strings.TrimSpace(value)
 	if len(value) > 512 {
 		value = value[:512]
 	}
-	value = bearerTokenPattern.ReplaceAllString(value, "Bearer [redacted]")
-	value = sensitiveAssignmentPattern.ReplaceAllStringFunc(value, func(match string) string {
-		separator := strings.IndexAny(match, ":=")
-		if separator < 0 {
-			return "[redacted]"
-		}
-		return strings.TrimSpace(match[:separator]) + "=[redacted]"
-	})
-	value = secretTokenPattern.ReplaceAllString(value, "[redacted]")
-	value = emailPattern.ReplaceAllString(value, "[redacted-account]")
-	words := strings.Fields(value)
-	for i := range words {
-		lower := strings.ToLower(words[i])
-		if i > 0 && strings.EqualFold(words[i-1], "bearer") {
-			words[i] = "[redacted]"
-			continue
-		}
-		if strings.HasPrefix(lower, "sk-") || strings.HasPrefix(lower, "key=") || strings.HasPrefix(lower, "token=") {
-			words[i] = "[redacted]"
-		}
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
 	}
-	return strings.Join(words, " ")
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, value)
 }
 
 func firstNonEmpty(values ...string) string {
