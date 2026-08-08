@@ -347,33 +347,36 @@ main { min-width: 0; padding: 0 0 34px; }
 .chart-x-label { fill: var(--muted); font-size: 11px; text-anchor: middle; }
 .active-hover-dot { filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.25)); transition: cx 0.05s ease-out, cy 0.05s ease-out; }
 
-/* SVG 动感平滑 Draw 动画 */
-@keyframes lineDraw {
-  from { stroke-dashoffset: 2400; }
-  to { stroke-dashoffset: 0; }
+/* SVG 动感平滑 Draw 动画 (通过 clipPath 实现平滑从左至右展开，完美兼容虚线) */
+@keyframes chartClipUnveil {
+  from { width: 0px; }
+  to { width: 100%; }
 }
+.chart-clip-rect {
+  width: 0px;
+  animation: chartClipUnveil 1.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 .animated-line {
-  stroke-dasharray: 2400;
-  stroke-dashoffset: 0;
-  animation: lineDraw 1.1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   transition: stroke 0.3s ease, opacity 0.3s ease;
 }
 
 .animated-area {
   stroke: none;
   transition: opacity 0.4s ease;
-  animation: areaFadeIn 0.8s ease-out forwards;
-}
-@keyframes areaFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
-.trend-dot {
-  transition: r 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), fill 0.2s ease, transform 0.2s ease;
+.trend-point-dot {
+  transition: r 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease;
   cursor: pointer;
 }
-.trend-dot:hover { r: 6.5; fill: var(--surface); }
+.trend-point-dot:hover {
+  r: 5.5;
+  stroke-width: 2.2;
+}
+
+.chip-dashed { background: transparent !important; border: 2px dashed #7738ee; box-sizing: border-box; }
+.tt-box-dashed { border: 1.5px dashed rgba(255, 255, 255, 0.9); background: #7738ee !important; }
 
 .chart-crosshair { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 4; opacity: 0.7; transition: opacity 0.15s ease; }
 

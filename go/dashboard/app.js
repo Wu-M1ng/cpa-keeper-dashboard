@@ -330,11 +330,38 @@
     }
   }
 
+  function readSessionCache(key) {
+    try {
+      const raw = sessionStorage.getItem(`usage-keeper-cache:${key}`);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.expiresAt > Date.now()) return parsed.data;
+      sessionStorage.removeItem(`usage-keeper-cache:${key}`);
+    } catch (_) {}
+    return null;
+  }
+
+  function writeSessionCache(key, data) {
+    try {
+      sessionStorage.setItem(`usage-keeper-cache:${key}`, JSON.stringify({
+        data,
+        expiresAt: Date.now() + FRONTEND_CACHE_TTL_MS
+      }));
+    } catch (_) {}
+  }
+
   async function cached(path, force = false, signal) {
     const requestURL = new URL(path, window.location.origin);
     if (!requestURL.searchParams.has('range')) requestURL.searchParams.set('range', state.range);
     const requestPath = requestURL.pathname + requestURL.search;
-    const entry = state.cache.get(requestPath);
+    let entry = state.cache.get(requestPath);
+    if (!entry) {
+      const stored = readSessionCache(requestPath);
+      if (stored) {
+        entry = { data: stored, expiresAt: Date.now() + FRONTEND_CACHE_TTL_MS };
+        state.cache.set(requestPath, entry);
+      }
+    }
     if (!force && entry && entry.expiresAt > Date.now()) return entry.data;
     if (entry) state.cache.delete(requestPath);
     const data = await api(requestPath, { signal });
@@ -342,6 +369,7 @@
       state.cache.delete(state.cache.keys().next().value);
     }
     state.cache.set(requestPath, { data, expiresAt: Date.now() + FRONTEND_CACHE_TTL_MS });
+    writeSessionCache(requestPath, data);
     return data;
   }
 
@@ -408,14 +436,20 @@
     if (requestID !== state.loadRequestID || signal.aborted) return;
     renderKPIs(summary.kpi || {}, summary.trend || []);
     renderTrend(summary.trend || []);
-    renderHealth(summary.health || []);
     renderRuntime(summary.runtime || {});
-    renderAnalysis(analysis);
-    renderEventOptions(analysis);
-    if (eventRequestID === state.eventRequestID) {
-      state.eventPages = events.pages || 0;
-      renderEvents(events);
-    }
+    requestAnimationFrame(() => {
+      if (requestID !== state.loadRequestID || signal.aborted) return;
+      renderHealth(summary.health || []);
+      renderAnalysis(analysis);
+      renderEventOptions(analysis);
+      requestAnimationFrame(() => {
+        if (requestID !== state.loadRequestID || signal.aborted) return;
+        if (eventRequestID === state.eventRequestID) {
+          state.eventPages = events.pages || 0;
+          renderEvents(events);
+        }
+      });
+    });
   }
 
   function makeSparkline(points, key, color, id) {
@@ -514,17 +548,33 @@
       { key: 'input', color: '#326ff5' }, { key: 'output', color: '#20b95a' },
       { key: 'cache_write', color: '#ff7a12' }, { key: 'hit_rate', color: '#7738ee', dashed: true, rate: true },
     ];
-    let paths = '';
+    let linePaths = '', areaPaths = '', pointDots = '';
     dimensions.forEach((dimension) => {
       if (!active[dimension.key]) return;
       const pathPoints = points.map((point, index) => ({ x: x(index), y: dimension.rate ? rateY(point[dimension.key]) : tokenY(point[dimension.key]) }));
       const path = buildClampedSmoothPath(pathPoints, top, zeroY);
       if (dimension.area && pathPoints.length > 1) {
-        paths += `<defs><linearGradient id="area-gradient-cache" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${dimension.color}" stop-opacity=".18"/><stop offset="100%" stop-color="${dimension.color}" stop-opacity="0"/></linearGradient></defs><path d="${path} L ${pathPoints.at(-1).x} ${zeroY - 1} L ${pathPoints[0].x} ${zeroY - 1} Z" fill="url(#area-gradient-cache)" stroke="none" class="animated-area"/>`;
+        areaPaths += `<path d="${path} L ${pathPoints.at(-1).x} ${zeroY - 1} L ${pathPoints[0].x} ${zeroY - 1} Z" fill="url(#area-gradient-cache)" stroke="none" class="animated-area"/>`;
       }
-      paths += `<path d="${path}" fill="none" stroke="${dimension.color}" stroke-width="2.5" ${dimension.dashed ? 'stroke-dasharray="5 5"' : ''} stroke-linecap="round" class="animated-line"/>`;
+      linePaths += `<path d="${path}" fill="none" stroke="${dimension.color}" stroke-width="2.5" ${dimension.dashed ? 'stroke-dasharray="6 6"' : ''} stroke-linecap="round" stroke-linejoin="round" class="animated-line"/>`;
+      if (points.length <= 120) {
+        pathPoints.forEach((pt) => {
+          pointDots += `<circle cx="${pt.x}" cy="${pt.y}" r="3.5" fill="${dimension.color}" stroke="var(--surface)" stroke-width="1.8" class="trend-point-dot"/>`;
+        });
+      }
     });
-    host.innerHTML = `<svg class="trend-svg-large" viewBox="0 0 ${width} ${height}" id="trend-svg-element" role="img" aria-label="输入、输出、缓存和缓存命中率趋势">${leftGrid}${rightGrid}${paths}${xLabels}<line id="crosshair-line" class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${zeroY}" hidden/><g id="active-dots-group"></g></svg><div id="trend-tooltip" class="trend-tooltip-popup" hidden></div>`;
+
+    const defs = `<defs>
+      <clipPath id="chart-reveal-clip">
+        <rect x="0" y="0" width="${width}" height="${height}" class="chart-clip-rect"/>
+      </clipPath>
+      <linearGradient id="area-gradient-cache" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#18ad9d" stop-opacity=".24"/>
+        <stop offset="100%" stop-color="#18ad9d" stop-opacity="0"/>
+      </linearGradient>
+    </defs>`;
+
+    host.innerHTML = `<svg class="trend-svg-large" viewBox="0 0 ${width} ${height}" id="trend-svg-element" role="img" aria-label="输入、输出、缓存和缓存命中率趋势">${defs}${leftGrid}${rightGrid}<g clip-path="url(#chart-reveal-clip)">${areaPaths}${linePaths}${pointDots}</g>${xLabels}<line id="crosshair-line" class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${zeroY}" hidden/><g id="active-dots-group"></g></svg><div id="trend-tooltip" class="trend-tooltip-popup" hidden></div>`;
     const svg = $('#trend-svg-element'), crosshair = $('#crosshair-line'), dots = $('#active-dots-group'), tooltip = $('#trend-tooltip');
     host.onmousemove = (event) => {
       const rect = svg.getBoundingClientRect();
@@ -536,12 +586,12 @@
       const index = points.length === 1 ? 0 : Math.max(0, Math.min(points.length - 1, Math.round((viewX-left)/step)));
       const point = points[index], pointX = x(index);
       crosshair.setAttribute('x1', pointX); crosshair.setAttribute('x2', pointX); crosshair.hidden = false;
-      dots.innerHTML = dimensions.filter((dimension) => active[dimension.key]).map((dimension) => `<circle cx="${pointX}" cy="${dimension.rate ? rateY(point[dimension.key]) : tokenY(point[dimension.key])}" r="5" fill="${dimension.color}" stroke="var(--surface)" stroke-width="2.5" class="active-hover-dot"/>`).join('');
+      dots.innerHTML = dimensions.filter((dimension) => active[dimension.key]).map((dimension) => `<circle cx="${pointX}" cy="${dimension.rate ? rateY(point[dimension.key]) : tokenY(point[dimension.key])}" r="5.5" fill="${dimension.color}" stroke="var(--surface)" stroke-width="2.5" class="active-hover-dot"/>`).join('');
       const rows = [
         ['input', '输入', '#326ff5', formatCompact], ['output', '输出', '#20b95a', formatCompact],
         ['cache_write', '缓存创建', '#ff7a12', formatCompact], ['cache_read', '缓存读取', '#18ad9d', formatCompact],
         ['hit_rate', '缓存命中率', '#7738ee', formatPercent],
-      ].filter(([key]) => active[key]).map(([key, label, color, formatter]) => `<div class="tt-row"><span class="tt-row-left"><span class="tt-box" style="background:${color}"></span>${label}</span><strong>${formatter(point[key])}</strong></div>`).join('');
+      ].filter(([key]) => active[key]).map(([key, label, color, formatter]) => `<div class="tt-row"><span class="tt-row-left"><span class="tt-box ${key === 'hit_rate' ? 'tt-box-dashed' : ''}" style="background:${color}"></span>${label}</span><strong>${formatter(point[key])}</strong></div>`).join('');
       tooltip.innerHTML = `<div class="tt-header">${esc(formatDateTime(point.timestamp_ms))}</div><div class="tt-body">${rows}</div><div class="tt-footer">实际费用: <strong>${formatMoney(point.actual_cost)}</strong> · 标准费用: <strong>${formatMoney(point.standard_cost)}</strong></div>`;
       const halfWidth = 135;
       tooltip.style.left = `${Math.max(halfWidth+12, Math.min(window.innerWidth-halfWidth-12, event.clientX))}px`;
@@ -627,7 +677,7 @@
 
   function distributionCard(title, values) {
     const top = values.slice(0, 5);
-    const total = values.reduce((sum, item) => sum + (item.requests || 0), 0) || 1;
+    const total = top.reduce((sum, item) => sum + (item.requests || 0), 0) || 1;
     const circumference = 2 * Math.PI * 38;
     let offset = 0;
     const segments = top.map((item, index) => {
@@ -1021,8 +1071,8 @@
   function formatDuration(value) { const ms = Number(value || 0); return ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`; }
   function formatBytes(value) { const bytes = Number(value || 0); if (bytes < 1024) return `${bytes} B`; if (bytes < 1048576) return `${(bytes/1024).toFixed(1)} KB`; return `${(bytes/1048576).toFixed(1)} MB`; }
   function formatDateTime(value) { return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(Number(value))); }
-  function formatHealthDate(value) { return new Intl.DateTimeFormat('zh-CN', { timeZone: 'UTC', month: 'numeric', day: 'numeric' }).format(new Date(Number(value))); }
-  function formatHealthDateTime(value) { return new Intl.DateTimeFormat('zh-CN', { timeZone: 'UTC', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(Number(value))); }
+  function formatHealthDate(value) { return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(Number(value))); }
+  function formatHealthDateTime(value) { return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(Number(value))); }
   function formatTime(value, range) { return new Intl.DateTimeFormat('zh-CN', range === '24h' ? { hour: '2-digit', minute: '2-digit' } : { month: '2-digit', day: '2-digit' }).format(new Date(Number(value))); }
   function namedError(name, message) { const error = new Error(message); error.name = name; return error; }
 })();

@@ -285,7 +285,7 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 	sort.Slice(result.Trend, func(i, j int) bool { return result.Trend[i].TimestampMS < result.Trend[j].TimestampMS })
 
 	const healthInterval int64 = 15
-	healthStart := now.UTC().Truncate(24 * time.Hour).Add(-4 * 24 * time.Hour)
+	healthStart := now.Truncate(24 * time.Hour).Add(-4 * 24 * time.Hour)
 	healthRange := timeRange{
 		FromMS:          healthStart.UnixMilli(),
 		ToMS:            healthStart.Add(5 * 24 * time.Hour).Add(-time.Millisecond).UnixMilli(),

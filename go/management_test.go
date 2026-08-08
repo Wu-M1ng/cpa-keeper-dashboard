@@ -35,7 +35,7 @@ func TestManagementSummaryAndEvents(t *testing.T) {
 		Path:   managementPrefix + "/summary",
 		Query:  url.Values{"range": {"all"}},
 	})
-	if summary.StatusCode != http.StatusOK || summary.Headers.Get("Cache-Control") != "no-store" {
+	if summary.StatusCode != http.StatusOK || summary.Headers.Get("Cache-Control") != "no-cache" {
 		t.Fatalf("unexpected summary response: %+v", summary)
 	}
 	var decoded summaryResponse

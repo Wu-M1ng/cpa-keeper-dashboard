@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -150,16 +153,27 @@ func (c *managementReadCache) evictOldestLocked() {
 	}
 }
 
-func (r *pluginRuntime) cachedRead(key string, load func() managementResponse) managementResponse {
+func (r *pluginRuntime) cachedRead(key string, reqHeaders http.Header, load func() managementResponse) managementResponse {
 	if r == nil || r.readCache == nil {
 		return load()
+	}
+	ifNoneMatch := ""
+	if reqHeaders != nil {
+		ifNoneMatch = strings.TrimSpace(reqHeaders.Get("If-None-Match"))
 	}
 	for {
 		body, hit, wait, generation := r.readCache.acquire(key, time.Now())
 		if hit {
+			etag := computeETag(body)
+			if ifNoneMatch != "" && (ifNoneMatch == etag || ifNoneMatch == "W/"+etag || "W/"+ifNoneMatch == etag) {
+				return managementResponse{
+					StatusCode: http.StatusNotModified,
+					Headers:    etagHeaders(etag),
+				}
+			}
 			return managementResponse{
 				StatusCode: http.StatusOK,
-				Headers:    noStoreHeaders("application/json; charset=utf-8"),
+				Headers:    etagHeaders(etag),
 				Body:       body,
 			}
 		}
@@ -169,7 +183,26 @@ func (r *pluginRuntime) cachedRead(key string, load func() managementResponse) m
 		}
 		response := load()
 		cacheable := response.StatusCode == http.StatusOK && response.Headers.Get("Content-Type") == "application/json; charset=utf-8"
+		if cacheable && len(response.Body) > 0 {
+			etag := computeETag(response.Body)
+			response.Headers.Set("ETag", etag)
+			response.Headers.Set("Cache-Control", "no-cache")
+		}
 		r.readCache.finish(key, generation, response.Body, cacheable, time.Now())
 		return response
+	}
+}
+
+func computeETag(body []byte) string {
+	sum := sha256.Sum256(body)
+	return fmt.Sprintf(`"W/"%x""`, sum[:8])
+}
+
+func etagHeaders(etag string) http.Header {
+	return http.Header{
+		"Content-Type":           []string{"application/json; charset=utf-8"},
+		"Cache-Control":          []string{"no-cache"},
+		"ETag":                   []string{etag},
+		"X-Content-Type-Options": []string{"nosniff"},
 	}
 }
