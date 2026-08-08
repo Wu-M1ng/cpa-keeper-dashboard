@@ -83,6 +83,8 @@ func importBackup(ctx context.Context, store *eventStore, payload backupPayload)
 		}
 		normalizeEventForStorage(event, store.hashSalt)
 	}
+	store.priceMu.Lock()
+	defer store.priceMu.Unlock()
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return importResult{}, err
@@ -106,6 +108,9 @@ func importBackup(ctx context.Context, store *eventStore, payload backupPayload)
 	store.last = time.Now().UTC()
 	store.lastErr = ""
 	store.mu.Unlock()
+	store.priceLoaded = false
+	store.priceList = nil
+	store.priceMap = nil
 	return importResult{Events: len(payload.Events), Prices: len(payload.Prices)}, nil
 }
 

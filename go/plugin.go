@@ -21,12 +21,13 @@ var (
 )
 
 type pluginRuntime struct {
-	configMu  sync.RWMutex
-	config    runtimeConfig
-	store     *eventStore
-	queue     chan usageEvent
-	readCache *managementReadCache
-	started   time.Time
+	configMu   sync.RWMutex
+	settingsMu sync.Mutex
+	config     runtimeConfig
+	store      *eventStore
+	queue      chan usageEvent
+	readCache  *managementReadCache
+	started    time.Time
 
 	queueMu sync.RWMutex
 	closed  bool
@@ -156,7 +157,6 @@ func (r *pluginRuntime) runWriter() {
 			r.writeFailures.Add(1)
 		} else {
 			r.written.Add(uint64(count))
-			r.readCache.clear()
 		}
 		r.lastBatchSize.Store(int64(count))
 		r.lastBatchNS.Store(time.Since(started).Nanoseconds())
@@ -178,7 +178,9 @@ func (r *pluginRuntime) runWriter() {
 			flush()
 		case now := <-retentionTicker.C:
 			flush()
-			_ = r.pruneExpired(now.UTC())
+			if err := r.pruneExpired(now.UTC()); err == nil {
+				r.readCache.clear()
+			}
 		}
 	}
 }
@@ -204,6 +206,14 @@ func (r *pluginRuntime) close() {
 }
 
 func (r *pluginRuntime) status() runtimeStatus {
+	return r.runtimeStatus(r.store.status())
+}
+
+func (r *pluginRuntime) summaryStatus() runtimeStatus {
+	return r.runtimeStatus(r.store.statusSnapshot())
+}
+
+func (r *pluginRuntime) runtimeStatus(storage storageStatus) runtimeStatus {
 	r.configMu.RLock()
 	cfg := r.config
 	r.configMu.RUnlock()
@@ -217,7 +227,7 @@ func (r *pluginRuntime) status() runtimeStatus {
 		LastBatchSize: r.lastBatchSize.Load(),
 		LastBatchMS:   float64(r.lastBatchNS.Load()) / float64(time.Millisecond),
 		StartedAt:     r.started.Format(time.RFC3339),
-		Storage:       r.store.status(),
+		Storage:       storage,
 		RetentionDays: cfg.RetentionDays,
 		BatchSize:     cfg.BatchSize,
 		FlushInterval: cfg.FlushIntervalMS,

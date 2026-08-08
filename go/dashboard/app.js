@@ -2,9 +2,11 @@
   'use strict';
 
   const API_ROOT = '/v0/management/plugins/usage-keeper';
-  const AUTO_REFRESH_MS = 30_000;
-  const FRONTEND_CACHE_TTL_MS = 30_000;
+  const CACHE_PREFIX = 'usage-keeper-cache:';
+  const AUTO_REFRESH_MS = 60_000;
+  const FRONTEND_CACHE_TTL_MS = 60_000;
   const FRONTEND_CACHE_MAX_ITEMS = 32;
+  const CHINA_TIME_ZONE = 'Asia/Shanghai';
   const HEALTH_DAYS = 5;
   const HEALTH_SLOTS_PER_DAY = 96;
   const COLORS = ['#326ff5', '#7738ee', '#20b95a', '#ff7a12', '#18ad9d', '#e44e3f'];
@@ -20,7 +22,7 @@
     managementKey: readManagementKey(),
     loading: false,
     pendingRequests: 0,
-    lastRefreshAt: 0,
+    refreshDeadline: 0,
     cache: new Map(),
     eventPage: 1,
     eventPages: 0,
@@ -42,10 +44,15 @@
   const number = new Intl.NumberFormat('zh-CN');
   const compact = new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 });
   const money = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const healthDateFormatter = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', timeZone: CHINA_TIME_ZONE });
+  const healthDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: CHINA_TIME_ZONE });
+  const time24hFormatter = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  const timeDateFormatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' });
 
   document.addEventListener('DOMContentLoaded', init);
 
-  function init() {
+  async function init() {
     bindTheme();
     bindNavigation();
     bindRange();
@@ -61,7 +68,7 @@
       if (state.page === 'overview' && state.lastTrendPoints.length) renderTrend(state.lastTrendPoints);
     });
     updateConnection(Boolean(state.managementKey));
-    loadActivePage(true);
+    await loadActivePage(false);
     startAutoRefresh();
   }
 
@@ -91,10 +98,9 @@
     cancelAutoRefresh();
     if (document.visibilityState !== 'visible') return;
     if (!state.managementKey || state.page === 'settings') return;
-    const elapsed = state.lastRefreshAt ? Date.now() - state.lastRefreshAt : 0;
     const delay = Number.isFinite(delayOverride)
       ? delayOverride
-      : state.lastRefreshAt ? Math.max(0, AUTO_REFRESH_MS - elapsed) : AUTO_REFRESH_MS;
+      : state.refreshDeadline ? Math.max(0, state.refreshDeadline - Date.now()) : AUTO_REFRESH_MS;
     autoRefreshTimer = window.setTimeout(runAutoRefresh, delay);
   }
 
@@ -298,7 +304,7 @@
       sessionStorage.setItem('usage-keeper-management-key', key);
       $('#auth-dialog').close();
       updateConnection(true);
-      state.cache.clear();
+      clearFrontendCache();
       loadActivePage(true);
     });
   }
@@ -309,6 +315,8 @@
     const requestID = ++state.loadRequestID;
     const page = state.page;
     state.loadController = controller;
+    state.refreshDeadline = 0;
+    let completed = false;
     setLoading(true);
     try {
       if (page === 'overview') await loadOverview(force, controller.signal, requestID);
@@ -316,6 +324,7 @@
       if (page === 'settings') await loadSettings(force, controller.signal, requestID);
       if (requestID !== state.loadRequestID) return;
       updateConnection(true);
+      completed = true;
     } catch (error) {
       if (error.name !== 'AuthRequired' && error.name !== 'AbortError') {
         toast(error.message || '加载失败', true);
@@ -325,8 +334,7 @@
       if (requestID !== state.loadRequestID) return;
       state.loadController = null;
       setLoading(false);
-      state.lastRefreshAt = Date.now();
-      scheduleAutoRefresh();
+      scheduleAutoRefresh(completed ? undefined : 5_000);
     }
   }
 
@@ -334,9 +342,9 @@
     const requestURL = new URL(path, window.location.origin);
     if (!requestURL.searchParams.has('range')) requestURL.searchParams.set('range', state.range);
     const requestPath = requestURL.pathname + requestURL.search;
-    const cacheKey = `usage-keeper-cache:${requestPath}`;
+    const cacheKey = `${CACHE_PREFIX}${cacheScope()}:${requestPath}`;
 
-    let entry = state.cache.get(requestPath);
+    let entry = state.cache.get(cacheKey);
     if (!entry && !force) {
       try {
         const raw = sessionStorage.getItem(cacheKey);
@@ -344,7 +352,7 @@
           const parsed = JSON.parse(raw);
           if (parsed && parsed.expiresAt > Date.now()) {
             entry = parsed;
-            state.cache.set(requestPath, entry);
+            state.cache.set(cacheKey, entry);
           } else {
             sessionStorage.removeItem(cacheKey);
           }
@@ -352,20 +360,50 @@
       } catch (_) { /* SessionStorage disabled or unavailable. */ }
     }
 
-    if (!force && entry && entry.expiresAt > Date.now()) return entry.data;
+    if (!force && entry && entry.expiresAt > Date.now()) {
+      trackCacheExpiry(entry.expiresAt);
+      return entry.data;
+    }
     if (entry) {
-      state.cache.delete(requestPath);
+      state.cache.delete(cacheKey);
       try { sessionStorage.removeItem(cacheKey); } catch (_) {}
     }
 
     const data = await api(requestPath, { signal });
     while (state.cache.size >= FRONTEND_CACHE_MAX_ITEMS) {
-      state.cache.delete(state.cache.keys().next().value);
+      const oldestKey = state.cache.keys().next().value;
+      state.cache.delete(oldestKey);
+      try { sessionStorage.removeItem(oldestKey); } catch (_) {}
     }
     const newEntry = { data, expiresAt: Date.now() + FRONTEND_CACHE_TTL_MS };
-    state.cache.set(requestPath, newEntry);
+    state.cache.set(cacheKey, newEntry);
     try { sessionStorage.setItem(cacheKey, JSON.stringify(newEntry)); } catch (_) {}
+    trackCacheExpiry(newEntry.expiresAt);
     return data;
+  }
+
+  function trackCacheExpiry(expiresAt) {
+    if (!state.refreshDeadline || expiresAt < state.refreshDeadline) state.refreshDeadline = expiresAt;
+  }
+
+  function cacheScope() {
+    let hash = 2166136261;
+    for (let index = 0; index < state.managementKey.length; index += 1) {
+      hash ^= state.managementKey.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function clearFrontendCache() {
+    state.cache.clear();
+    state.refreshDeadline = 0;
+    try {
+      for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+        const key = sessionStorage.key(index);
+        if (key?.startsWith(CACHE_PREFIX)) sessionStorage.removeItem(key);
+      }
+    } catch (_) { /* SessionStorage disabled or unavailable. */ }
   }
 
   async function api(path, options = {}) {
@@ -383,6 +421,7 @@
       if (response.status === 401) {
         sessionStorage.removeItem('usage-keeper-management-key');
         state.managementKey = '';
+        clearFrontendCache();
         updateConnection(false);
         showAuthDialog();
         throw namedError('AuthRequired', 'Management Key 已失效');
@@ -423,30 +462,30 @@
     state.eventController = null;
     const eventRequestID = ++state.eventRequestID;
     const params = eventParams();
-    const [summary, analysis, events] = await Promise.all([
-      cached('/summary', force, signal),
-      cached('/analysis', force, signal),
-      cached(`/events?${params}`, force, signal),
-    ]);
+    const summary = await cached('/summary', force, signal);
     if (requestID !== state.loadRequestID || signal.aborted) return;
     renderKPIs(summary.kpi || {}, summary.trend || []);
     renderTrend(summary.trend || []);
     renderRuntime(summary.runtime || {});
+    renderHealth(summary.health || []);
 
-    requestAnimationFrame(() => {
-      if (requestID !== state.loadRequestID || signal.aborted) return;
-      renderHealth(summary.health || []);
-      renderAnalysis(analysis);
-      renderEventOptions(analysis);
+    await yieldToBrowser();
+    if (requestID !== state.loadRequestID || signal.aborted) return;
+    const analysis = await cached('/analysis', force, signal);
+    if (requestID !== state.loadRequestID || signal.aborted) return;
+    renderAnalysis(analysis);
+    renderEventOptions(analysis);
 
-      requestAnimationFrame(() => {
-        if (requestID !== state.loadRequestID || signal.aborted) return;
-        if (eventRequestID === state.eventRequestID) {
-          state.eventPages = events.pages || 0;
-          renderEvents(events);
-        }
-      });
-    });
+    await yieldToBrowser();
+    if (requestID !== state.loadRequestID || signal.aborted || eventRequestID !== state.eventRequestID) return;
+    const events = await cached(`/events?${params}`, force, signal);
+    if (requestID !== state.loadRequestID || signal.aborted || eventRequestID !== state.eventRequestID) return;
+    state.eventPages = events.pages || 0;
+    renderEvents(events);
+  }
+
+  function yieldToBrowser() {
+    return new Promise((resolve) => requestAnimationFrame(resolve));
   }
 
   function makeSparkline(points, key, color, id) {
@@ -610,22 +649,60 @@
     $('#health-failure-count').textContent = formatInt(failures);
     if (!visible.length) return empty(host, '暂无健康数据');
 
-    host.innerHTML = Array.from({ length: HEALTH_DAYS }, (_, dayIndex) => {
-      const day = visible.slice(dayIndex * HEALTH_SLOTS_PER_DAY, (dayIndex + 1) * HEALTH_SLOTS_PER_DAY);
-      const label = day.length ? formatHealthDate(day[0].timestamp_ms) : '--';
-      const cells = day.map((point) => {
-        const pointRequests = Number(point.requests || 0);
-        const pointFailures = Number(point.failures || 0);
-        const pointSuccesses = Math.max(0, pointRequests - pointFailures);
-        const rate = pointRequests ? pointSuccesses / pointRequests : 0;
-        const level = healthLevel(pointSuccesses, pointFailures);
-        const title = pointRequests
-          ? `${formatHealthDateTime(point.timestamp_ms)} · 成功 ${formatInt(pointSuccesses)} · 失败 ${formatInt(pointFailures)} · ${formatPercent(rate)}`
-          : `${formatHealthDateTime(point.timestamp_ms)} · 无请求`;
-        return `<span class="health-cell level-${level}" data-time="${esc(formatHealthDateTime(point.timestamp_ms))}" data-reqs="${pointRequests}" data-succs="${pointSuccesses}" data-fails="${pointFailures}" data-rate="${pointRequests ? formatPercent(rate) : '--'}" title="${esc(title)}" aria-label="${esc(title)}"></span>`;
-      }).join('');
-      return `<div class="health-row"><span class="health-date">${esc(label)}</span><div class="health-cells">${cells}</div></div>`;
-    }).join('');
+    let rows = $$('.health-row', host);
+    let cells = $$('.health-cell', host);
+    if (rows.length !== HEALTH_DAYS || cells.length !== HEALTH_DAYS * HEALTH_SLOTS_PER_DAY) {
+      const fragment = document.createDocumentFragment();
+      for (let dayIndex = 0; dayIndex < HEALTH_DAYS; dayIndex += 1) {
+        const row = document.createElement('div');
+        row.className = 'health-row';
+        const label = document.createElement('span');
+        label.className = 'health-date';
+        const cellHost = document.createElement('div');
+        cellHost.className = 'health-cells';
+        for (let slot = 0; slot < HEALTH_SLOTS_PER_DAY; slot += 1) {
+          const cell = document.createElement('span');
+          cell.className = 'health-cell level-0';
+          cellHost.appendChild(cell);
+        }
+        row.append(label, cellHost);
+        fragment.appendChild(row);
+      }
+      host.replaceChildren(fragment);
+      rows = $$('.health-row', host);
+      cells = $$('.health-cell', host);
+    }
+
+    rows.forEach((row, dayIndex) => {
+      const first = visible[dayIndex * HEALTH_SLOTS_PER_DAY];
+      const label = first ? formatHealthDate(first.timestamp_ms) : '--';
+      const labelNode = $('.health-date', row);
+      if (labelNode.textContent !== label) labelNode.textContent = label;
+    });
+
+    cells.forEach((cell, index) => {
+      const point = visible[index] || {};
+      const signature = `${Number(point.timestamp_ms || 0)}:${Number(point.requests || 0)}:${Number(point.failures || 0)}`;
+      if (cell.dataset.healthSignature === signature) return;
+      cell.dataset.healthSignature = signature;
+      const pointRequests = Number(point.requests || 0);
+      const pointFailures = Number(point.failures || 0);
+      const pointSuccesses = Math.max(0, pointRequests - pointFailures);
+      const rate = pointRequests ? pointSuccesses / pointRequests : 0;
+      const level = healthLevel(pointSuccesses, pointFailures);
+      const formattedTime = point.timestamp_ms ? formatHealthDateTime(point.timestamp_ms) : '--';
+      const title = pointRequests
+        ? `${formattedTime} · 成功 ${formatInt(pointSuccesses)} · 失败 ${formatInt(pointFailures)} · ${formatPercent(rate)}`
+        : `${formattedTime} · 无请求`;
+      cell.className = `health-cell level-${level}`;
+      cell.dataset.time = formattedTime;
+      cell.dataset.reqs = String(pointRequests);
+      cell.dataset.succs = String(pointSuccesses);
+      cell.dataset.fails = String(pointFailures);
+      cell.dataset.rate = pointRequests ? formatPercent(rate) : '--';
+      cell.title = title;
+      cell.setAttribute('aria-label', title);
+    });
   }
 
   function healthLevel(successes, failures) {
@@ -673,13 +750,14 @@
   }
 
   function distributionCard(title, values) {
-    const top = values.slice(0, 5);
-    const total = top.reduce((sum, item) => sum + (item.requests || 0), 0) || 1;
+    const top = values.filter((item) => Number(item.requests || 0) > 0).slice(0, 5);
+    const total = top.reduce((sum, item) => sum + Number(item.requests || 0), 0) || 1;
     const circumference = 2 * Math.PI * 38;
     let offset = 0;
     const segments = top.map((item, index) => {
       const percentage = ((item.requests || 0) / total * 100).toFixed(1);
-      const length = (item.requests || 0) / total * circumference;
+      const calculatedLength = Number(item.requests || 0) / total * circumference;
+      const length = index === top.length - 1 ? circumference - offset : calculatedLength;
       const color = COLORS[index % COLORS.length];
       const segment = `<circle class="donut-segment" data-idx="${index}" data-name="${esc(item.name || '未识别')}" data-reqs="${formatInt(item.requests)}" data-pct="${percentage}%" data-color="${color}" cx="52" cy="52" r="38" stroke="${color}" stroke-dasharray="${length} ${circumference-length}" stroke-dashoffset="${-offset}"/>`;
       offset += length;
@@ -896,7 +974,6 @@
     renderStorage(settings);
     renderPrices(prices.prices || []);
     $('#auth-state').textContent = state.managementKey ? '已连接 · 密钥仅用于当前页面会话' : '未连接';
-    if (force) state.cache.clear();
   }
 
   function renderStorage(data) {
@@ -934,7 +1011,7 @@
     try {
       const data = await api('/prices', { method: 'PUT', body: JSON.stringify({ prices }) });
       renderPrices(data.prices || []);
-      state.cache.clear();
+      clearFrontendCache();
       toast('模型价格已保存');
     } catch (error) { toast(error.message, true); }
   }
@@ -945,6 +1022,7 @@
     try {
       const data = await api('/settings', { method: 'PUT', body: JSON.stringify({ retention_days: Number(form.get('retention_days')), export_max_records: Number(form.get('export_max_records')) }) });
       renderStorage(data);
+      clearFrontendCache();
       toast('存储设置已保存');
     } catch (error) { toast(error.message, true); }
   }
@@ -957,7 +1035,7 @@
       const text = await file.text();
       JSON.parse(text);
       const result = await api('/restore', { method: 'POST', body: text });
-      state.cache.clear();
+      clearFrontendCache();
       toast(`已恢复 ${formatInt(result.events)} 条事件`);
       await loadActivePage(true);
     } catch (error) { toast(error.message || '导入失败', true); }
@@ -1067,9 +1145,9 @@
   function formatMoney(value) { return money.format(Number(value || 0)); }
   function formatDuration(value) { const ms = Number(value || 0); return ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`; }
   function formatBytes(value) { const bytes = Number(value || 0); if (bytes < 1024) return `${bytes} B`; if (bytes < 1048576) return `${(bytes/1024).toFixed(1)} KB`; return `${(bytes/1048576).toFixed(1)} MB`; }
-  function formatDateTime(value) { return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(Number(value))); }
-  function formatHealthDate(value) { return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(Number(value))); }
-  function formatHealthDateTime(value) { return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(Number(value))); }
-  function formatTime(value, range) { return new Intl.DateTimeFormat('zh-CN', range === '24h' ? { hour: '2-digit', minute: '2-digit' } : { month: '2-digit', day: '2-digit' }).format(new Date(Number(value))); }
+  function formatDateTime(value) { return dateTimeFormatter.format(new Date(Number(value))); }
+  function formatHealthDate(value) { return healthDateFormatter.format(new Date(Number(value))); }
+  function formatHealthDateTime(value) { return healthDateTimeFormatter.format(new Date(Number(value))); }
+  function formatTime(value, range) { return (range === '24h' ? time24hFormatter : timeDateFormatter).format(new Date(Number(value))); }
   function namedError(name, message) { const error = new Error(message); error.name = name; return error; }
 })();

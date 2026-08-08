@@ -96,7 +96,7 @@ func TestCacheClearRejectsInflightStaleResult(t *testing.T) {
 	}
 }
 
-func TestWriterCommitInvalidatesManagementCache(t *testing.T) {
+func TestWriterCommitKeepsShortLivedManagementCache(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.StoragePath = filepath.Join(t.TempDir(), "usage.db")
 	runtime, err := newPluginRuntime(cfg)
@@ -116,7 +116,7 @@ func TestWriterCommitInvalidatesManagementCache(t *testing.T) {
 	if runtime.written.Load() == 0 {
 		t.Fatal("writer did not commit before deadline")
 	}
-	if _, ok := runtime.readCache.get("summary", time.Now()); ok {
-		t.Fatal("writer commit did not invalidate management cache")
+	if _, ok := runtime.readCache.get("summary", time.Now()); !ok {
+		t.Fatal("writer commit should leave the short-lived read cache intact")
 	}
 }

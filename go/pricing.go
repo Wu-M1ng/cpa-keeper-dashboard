@@ -61,6 +61,40 @@ func validatePrices(prices []modelPrice) error {
 }
 
 func listPrices(ctx context.Context, store *eventStore) ([]modelPrice, error) {
+	prices, _, err := loadPriceSnapshot(ctx, store)
+	return prices, err
+}
+
+func loadPriceSnapshot(ctx context.Context, store *eventStore) ([]modelPrice, map[string]modelPrice, error) {
+	store.priceMu.RLock()
+	if store.priceLoaded {
+		prices := append([]modelPrice(nil), store.priceList...)
+		priceMap := store.priceMap
+		store.priceMu.RUnlock()
+		return prices, priceMap, nil
+	}
+	store.priceMu.RUnlock()
+
+	store.priceMu.Lock()
+	defer store.priceMu.Unlock()
+	if store.priceLoaded {
+		return append([]modelPrice(nil), store.priceList...), store.priceMap, nil
+	}
+	prices, err := queryPrices(ctx, store)
+	if err != nil {
+		return nil, nil, err
+	}
+	priceMap := make(map[string]modelPrice, len(prices))
+	for _, price := range prices {
+		priceMap[price.Model] = price
+	}
+	store.priceList = append([]modelPrice(nil), prices...)
+	store.priceMap = priceMap
+	store.priceLoaded = true
+	return prices, priceMap, nil
+}
+
+func queryPrices(ctx context.Context, store *eventStore) ([]modelPrice, error) {
 	rows, err := store.db.QueryContext(ctx, `SELECT model, input_per_million, output_per_million,
 		cache_read_per_million, cache_write_per_million, reasoning_per_million, updated_at_ms
 		FROM model_prices ORDER BY model COLLATE NOCASE`)
@@ -85,6 +119,8 @@ func replacePrices(ctx context.Context, store *eventStore, prices []modelPrice) 
 	if err := validatePrices(prices); err != nil {
 		return err
 	}
+	store.priceMu.Lock()
+	defer store.priceMu.Unlock()
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -96,7 +132,13 @@ func replacePrices(ctx context.Context, store *eventStore, prices []modelPrice) 
 	if err := insertPricesTx(ctx, tx, prices); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	store.priceLoaded = false
+	store.priceList = nil
+	store.priceMap = nil
+	return nil
 }
 
 func insertPricesTx(ctx context.Context, tx *sql.Tx, prices []modelPrice) error {
@@ -125,15 +167,8 @@ func insertPricesTx(ctx context.Context, tx *sql.Tx, prices []modelPrice) error 
 }
 
 func loadPriceMap(ctx context.Context, store *eventStore) (map[string]modelPrice, error) {
-	prices, err := listPrices(ctx, store)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[string]modelPrice, len(prices))
-	for _, price := range prices {
-		result[price.Model] = price
-	}
-	return result, nil
+	_, prices, err := loadPriceSnapshot(ctx, store)
+	return prices, err
 }
 
 func resolvePrice(model string, prices map[string]modelPrice) modelPrice {

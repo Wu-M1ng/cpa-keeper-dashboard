@@ -31,6 +31,11 @@ type eventStore struct {
 	mu       sync.RWMutex
 	last     time.Time
 	lastErr  string
+
+	priceMu     sync.RWMutex
+	priceLoaded bool
+	priceList   []modelPrice
+	priceMap    map[string]modelPrice
 }
 
 func openEventStore(cfg runtimeConfig) (*eventStore, error) {
@@ -331,7 +336,7 @@ func (s *eventStore) prune(retentionDays int, now time.Time) error {
 }
 
 func (s *eventStore) status() storageStatus {
-	status := storageStatus{Enabled: s.enabled, Path: s.path, JournalMode: "wal"}
+	status := s.statusSnapshot()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = s.db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&status.JournalMode)
@@ -342,6 +347,11 @@ func (s *eventStore) status() storageStatus {
 			status.DatabaseBytes = info.Size()
 		}
 	}
+	return status
+}
+
+func (s *eventStore) statusSnapshot() storageStatus {
+	status := storageStatus{Enabled: s.enabled, Path: s.path, JournalMode: "wal"}
 	s.mu.RLock()
 	if !s.last.IsZero() {
 		status.LastWriteAt = s.last.Format(time.RFC3339)

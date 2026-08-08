@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+var chinaStandardTime = time.FixedZone("CST", 8*60*60)
+
 type timeRange struct {
 	FromMS          int64  `json:"from_ms"`
 	ToMS            int64  `json:"to_ms"`
@@ -205,6 +207,18 @@ func parseTimeValue(value string) (time.Time, error) {
 	return time.Parse(time.RFC3339, value)
 }
 
+func chinaHealthRange(now time.Time) timeRange {
+	localNow := now.In(chinaStandardTime)
+	today := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, chinaStandardTime)
+	start := today.AddDate(0, 0, -4)
+	return timeRange{
+		FromMS:          start.UnixMilli(),
+		ToMS:            today.AddDate(0, 0, 1).Add(-time.Millisecond).UnixMilli(),
+		Label:           "5d",
+		IntervalMinutes: 15,
+	}
+}
+
 func querySummary(ctx context.Context, store *eventStore, query url.Values, now time.Time) (summaryResponse, error) {
 	rng, err := parseRange(query, now)
 	if err != nil {
@@ -221,9 +235,9 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 	result := summaryResponse{Range: rng, Trend: []trendPoint{}, Health: []healthPoint{}, GeneratedAt: now.UTC().Format(time.RFC3339)}
 	result.KPI.RangeLabel = rng.Label
 	if runtime := currentRuntime(); runtime != nil && runtime.store == store {
-		result.Runtime = runtime.status()
+		result.Runtime = runtime.summaryStatus()
 	} else {
-		result.Runtime.Storage = store.status()
+		result.Runtime.Storage = store.statusSnapshot()
 	}
 	trendByBucket := make(map[int64]*trendPoint)
 	var latencySum, ttftSum, ttftCount int64
@@ -284,15 +298,8 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 	}
 	sort.Slice(result.Trend, func(i, j int) bool { return result.Trend[i].TimestampMS < result.Trend[j].TimestampMS })
 
-	const healthInterval int64 = 15
-	y, m, d := now.Date()
-	healthStart := time.Date(y, m, d, 0, 0, 0, 0, now.Location()).Add(-4 * 24 * time.Hour)
-	healthRange := timeRange{
-		FromMS:          healthStart.UnixMilli(),
-		ToMS:            healthStart.Add(5 * 24 * time.Hour).Add(-time.Millisecond).UnixMilli(),
-		Label:           "5d",
-		IntervalMinutes: healthInterval,
-	}
+	healthRange := chinaHealthRange(now)
+	healthInterval := healthRange.IntervalMinutes
 	healthRows, err := queryAggregateRows(ctx, store, healthRange, healthInterval, "", nil)
 	if err != nil {
 		return summaryResponse{}, err

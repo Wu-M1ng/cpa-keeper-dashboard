@@ -32,7 +32,7 @@ Linux/macOS 将输出文件名改为 `usage-keeper.so` 或 `usage-keeper.dylib`�
 也可以使用：
 
 ```powershell
-.\scripts\build.ps1 -Version 1.1.0
+.\scripts\build.ps1 -Version 1.1.1
 ```
 
 ## 安装
@@ -101,21 +101,21 @@ UsageRecord -> compact event -> bounded channel -> return
 
 队列默认容纳 256 条事件。队列满时在构造完整事件前记录 `dropped` 计数并立即返回；未刷新批次在进程突然退出时可能丢失，这是避免阻塞 API 完成路径的明确取舍。后台默认每 64 条或 250 ms 写一次。
 
-Dashboard 仅在页面可见且 30 秒前端缓存失效时刷新。聚合 Management API 使用 4 秒、32 条目、4 MiB 上限的进程内缓存，并合并相同 Key 的并发查询。SQLite 最多 4 个连接，每个连接约 8 MiB 页缓存，临时排序写入临时文件。
+Dashboard 仅在页面可见且 60 秒前端缓存失效时刷新。聚合 Management API 使用 4 秒、32 条目、4 MiB 上限的进程内缓存，并合并相同 Key 的并发查询。SQLite 最多 4 个连接，每个连接约 8 MiB 页缓存，临时排序写入临时文件。
 
 ## 发布
 
 ```powershell
-.\scripts\build.ps1 -Version 1.1.0 -GoOS windows -GoArch amd64
+.\scripts\build.ps1 -Version 1.1.1 -GoOS windows -GoArch amd64
 ```
 
 推送语义化版本标签后，GitHub Actions 会自动构建 Windows/Linux/macOS 动态库，打包 zip，生成统一的 `checksums.txt`，并创建 GitHub Release：
 
 ```powershell
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.1.1
+git push origin v1.1.1
 ```
 
-也可在 GitHub Actions 手动运行 `release` 工作流并输入版本标签，例如 `v1.1.0`。工作流会检查远端 tag：不存在时在当前提交创建并推送，存在时直接复用；对应 GitHub Release 已存在时会更新同名发布资产。
+也可在 GitHub Actions 手动运行 `release` 工作流并输入版本标签，例如 `v1.1.1`。工作流会检查远端 tag：不存在时在当前提交创建并推送，存在时直接复用；对应 GitHub Release 已存在时会更新同名发布资产。
 
 发布 zip 根目录直接包含动态库。`registry.json` 是插件商店条目，仓库地址已指向本项目。

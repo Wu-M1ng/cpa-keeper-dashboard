@@ -65,9 +65,11 @@ func TestDashboardAssetsAreEmbeddedAndSelfContained(t *testing.T) {
 		t.Fatal("JS asset still sends dashboard API requests to the site root")
 	}
 	for _, expected := range []string{
-		"const AUTO_REFRESH_MS = 30_000;",
-		"const FRONTEND_CACHE_TTL_MS = 30_000;",
+		"const AUTO_REFRESH_MS = 60_000;",
+		"const FRONTEND_CACHE_TTL_MS = 60_000;",
 		"const FRONTEND_CACHE_MAX_ITEMS = 32;",
+		"const CACHE_PREFIX = 'usage-keeper-cache:';",
+		"const CHINA_TIME_ZONE = 'Asia/Shanghai';",
 		"const HEALTH_DAYS = 5;",
 		"const HEALTH_SLOTS_PER_DAY = 96;",
 		"Math.max(0, inputTokens - cacheReadTokens - cacheCreationTokens)",
@@ -77,6 +79,12 @@ func TestDashboardAssetsAreEmbeddedAndSelfContained(t *testing.T) {
 		"state.loadController?.abort();",
 		"await loadActivePage(false);",
 		"window.setTimeout(runAutoRefresh",
+		"loadActivePage(false);",
+		"await yieldToBrowser();",
+		"index === top.length - 1 ? circumference - offset",
+		"function clearFrontendCache()",
+		"sessionStorage.removeItem(oldestKey)",
+		"Math.max(0, state.refreshDeadline - Date.now())",
 	} {
 		if !bytes.Contains(js.Body, []byte(expected)) {
 			t.Fatalf("JS asset is missing guarded auto-refresh behavior %q", expected)
@@ -84,6 +92,12 @@ func TestDashboardAssetsAreEmbeddedAndSelfContained(t *testing.T) {
 	}
 	if bytes.Contains(js.Body, []byte("window.setInterval(refresh, AUTO_REFRESH_MS)")) {
 		t.Fatal("auto-refresh must be scheduled from request completion, not initialization time")
+	}
+	if bytes.Contains(js.Body, []byte("loadActivePage(true);\n    startAutoRefresh();")) {
+		t.Fatal("initial dashboard load must reuse a fresh session cache")
+	}
+	if bytes.Contains(js.Body, []byte("Promise.all([\n      cached('/summary'")) {
+		t.Fatal("overview refresh must not run all SQLite-backed reads concurrently")
 	}
 	for _, forbidden := range []string{"if (state.loading) return;", "await loadEventOptions(force);"} {
 		if bytes.Contains(js.Body, []byte(forbidden)) {

@@ -107,3 +107,34 @@ func TestManagementRejectsInvalidFiltersWithoutInternalDetails(t *testing.T) {
 		t.Fatalf("error response headers/body missing: %+v", response)
 	}
 }
+
+func TestManagementCacheKeyIncludesCustomRange(t *testing.T) {
+	base := managementRequest{Method: http.MethodGet, Path: managementPrefix + "/summary"}
+	base.Query = url.Values{"range": {"custom"}, "from": {"1000"}, "to": {"2000"}}
+	other := base
+	other.Query = url.Values{"range": {"custom"}, "from": {"2000"}, "to": {"3000"}}
+	if managementCacheKey(base) == managementCacheKey(other) {
+		t.Fatal("different custom ranges must not share a management cache key")
+	}
+}
+
+func TestUpdateSettingsPublishesConfigOnlyAfterCommit(t *testing.T) {
+	runtime, _ := withTestRuntime(t)
+	runtime.configMu.RLock()
+	before := runtime.config
+	runtime.configMu.RUnlock()
+	if err := runtime.store.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	response := updateSettings(t.Context(), runtime, []byte(`{"retention_days":14,"export_max_records":1000}`))
+	if response.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusInternalServerError)
+	}
+	runtime.configMu.RLock()
+	after := runtime.config
+	runtime.configMu.RUnlock()
+	if after != before {
+		t.Fatalf("failed commit published runtime config: before=%+v after=%+v", before, after)
+	}
+}

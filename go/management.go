@@ -62,8 +62,10 @@ func handleManagement(request managementRequest) managementResponse {
 			return queryJSON(result, err)
 		})
 	case http.MethodGet + " " + managementPrefix + "/upstream":
-		result, err := queryUpstreamDetail(ctx, runtime.store, request.Query.Get("key"), request.Query, now)
-		return queryJSON(result, err)
+		return runtime.cachedRead(managementCacheKey(request), func() managementResponse {
+			result, err := queryUpstreamDetail(ctx, runtime.store, request.Query.Get("key"), request.Query, now)
+			return queryJSON(result, err)
+		})
 	case http.MethodGet + " " + managementPrefix + "/events":
 		filter, err := parseEventFilter(request.Query, now)
 		if err != nil {
@@ -123,7 +125,7 @@ func handleManagement(request managementRequest) managementResponse {
 }
 
 func managementCacheKey(request managementRequest) string {
-	return request.Method + " " + request.Path + "?range=" + request.Query.Get("range")
+	return request.Method + " " + request.Path + "?" + request.Query.Encode()
 }
 
 func isResourcePath(path string) bool {
@@ -190,24 +192,24 @@ func updateSettings(ctx context.Context, runtime *pluginRuntime, body []byte) ma
 	if len(body) == 0 || json.Unmarshal(body, &patch) != nil {
 		return errorResponse(http.StatusBadRequest, "invalid_settings", "设置 JSON 无效")
 	}
-	runtime.configMu.Lock()
+	runtime.settingsMu.Lock()
+	defer runtime.settingsMu.Unlock()
+
+	runtime.configMu.RLock()
 	cfg := runtime.config
+	runtime.configMu.RUnlock()
 	if patch.RetentionDays != nil {
 		if *patch.RetentionDays < 1 || *patch.RetentionDays > 3650 {
-			runtime.configMu.Unlock()
 			return errorResponse(http.StatusBadRequest, "invalid_settings", "retention_days 必须在 1 到 3650 之间")
 		}
 		cfg.RetentionDays = *patch.RetentionDays
 	}
 	if patch.ExportMax != nil {
 		if *patch.ExportMax < 100 || *patch.ExportMax > 1_000_000 {
-			runtime.configMu.Unlock()
 			return errorResponse(http.StatusBadRequest, "invalid_settings", "export_max_records 必须在 100 到 1000000 之间")
 		}
 		cfg.ExportMax = *patch.ExportMax
 	}
-	runtime.config = cfg
-	runtime.configMu.Unlock()
 	values := map[string]int{"retention_days": cfg.RetentionDays, "export_max_records": cfg.ExportMax}
 	tx, err := runtime.store.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -223,6 +225,9 @@ func updateSettings(ctx context.Context, runtime *pluginRuntime, body []byte) ma
 	if err := tx.Commit(); err != nil {
 		return internalError()
 	}
+	runtime.configMu.Lock()
+	runtime.config = cfg
+	runtime.configMu.Unlock()
 	_ = runtime.store.prune(cfg.RetentionDays, time.Now().UTC())
 	runtime.readCache.clear()
 	return jsonResponse(http.StatusOK, currentSettings(runtime))
