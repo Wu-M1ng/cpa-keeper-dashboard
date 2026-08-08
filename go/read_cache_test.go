@@ -55,7 +55,7 @@ func TestCachedReadCoalescesConcurrentMisses(t *testing.T) {
 	for index := 0; index < readers; index++ {
 		go func() {
 			defer wait.Done()
-			if response := runtime.cachedRead("summary", nil, loader); response.StatusCode != http.StatusOK {
+			if response := runtime.cachedRead("summary", loader); response.StatusCode != http.StatusOK {
 				t.Errorf("status = %d", response.StatusCode)
 			}
 		}()
@@ -76,7 +76,7 @@ func TestCacheClearRejectsInflightStaleResult(t *testing.T) {
 	firstDone := make(chan struct{})
 	go func() {
 		defer close(firstDone)
-		runtime.cachedRead("summary", nil, func() managementResponse {
+		runtime.cachedRead("summary", func() managementResponse {
 			loads.Add(1)
 			close(started)
 			<-release
@@ -87,36 +87,12 @@ func TestCacheClearRejectsInflightStaleResult(t *testing.T) {
 	runtime.readCache.clear()
 	close(release)
 	<-firstDone
-	runtime.cachedRead("summary", nil, func() managementResponse {
+	runtime.cachedRead("summary", func() managementResponse {
 		loads.Add(1)
 		return jsonResponse(http.StatusOK, map[string]int{"version": 2})
 	})
 	if loads.Load() != 2 {
 		t.Fatalf("stale inflight response repopulated cache: loads=%d", loads.Load())
-	}
-}
-
-func TestCachedReadReturns304NotModified(t *testing.T) {
-	runtime := &pluginRuntime{readCache: newManagementReadCache()}
-	loader := func() managementResponse {
-		return jsonResponse(http.StatusOK, map[string]string{"status": "ok"})
-	}
-	first := runtime.cachedRead("summary", nil, loader)
-	if first.StatusCode != http.StatusOK {
-		t.Fatalf("first status = %d, want 200", first.StatusCode)
-	}
-	etag := first.Headers.Get("ETag")
-	if etag == "" {
-		t.Fatal("first response missing ETag header")
-	}
-
-	headers := http.Header{"If-None-Match": []string{etag}}
-	second := runtime.cachedRead("summary", headers, loader)
-	if second.StatusCode != http.StatusNotModified {
-		t.Fatalf("second status = %d, want 304 Not Modified", second.StatusCode)
-	}
-	if len(second.Body) != 0 {
-		t.Fatalf("304 response contains body: %s", second.Body)
 	}
 }
 

@@ -330,46 +330,41 @@
     }
   }
 
-  function readSessionCache(key) {
-    try {
-      const raw = sessionStorage.getItem(`usage-keeper-cache:${key}`);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.expiresAt > Date.now()) return parsed.data;
-      sessionStorage.removeItem(`usage-keeper-cache:${key}`);
-    } catch (_) {}
-    return null;
-  }
-
-  function writeSessionCache(key, data) {
-    try {
-      sessionStorage.setItem(`usage-keeper-cache:${key}`, JSON.stringify({
-        data,
-        expiresAt: Date.now() + FRONTEND_CACHE_TTL_MS
-      }));
-    } catch (_) {}
-  }
-
   async function cached(path, force = false, signal) {
     const requestURL = new URL(path, window.location.origin);
     if (!requestURL.searchParams.has('range')) requestURL.searchParams.set('range', state.range);
     const requestPath = requestURL.pathname + requestURL.search;
+    const cacheKey = `usage-keeper-cache:${requestPath}`;
+
     let entry = state.cache.get(requestPath);
-    if (!entry) {
-      const stored = readSessionCache(requestPath);
-      if (stored) {
-        entry = { data: stored, expiresAt: Date.now() + FRONTEND_CACHE_TTL_MS };
-        state.cache.set(requestPath, entry);
-      }
+    if (!entry && !force) {
+      try {
+        const raw = sessionStorage.getItem(cacheKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.expiresAt > Date.now()) {
+            entry = parsed;
+            state.cache.set(requestPath, entry);
+          } else {
+            sessionStorage.removeItem(cacheKey);
+          }
+        }
+      } catch (_) { /* SessionStorage disabled or unavailable. */ }
     }
+
     if (!force && entry && entry.expiresAt > Date.now()) return entry.data;
-    if (entry) state.cache.delete(requestPath);
+    if (entry) {
+      state.cache.delete(requestPath);
+      try { sessionStorage.removeItem(cacheKey); } catch (_) {}
+    }
+
     const data = await api(requestPath, { signal });
     while (state.cache.size >= FRONTEND_CACHE_MAX_ITEMS) {
       state.cache.delete(state.cache.keys().next().value);
     }
-    state.cache.set(requestPath, { data, expiresAt: Date.now() + FRONTEND_CACHE_TTL_MS });
-    writeSessionCache(requestPath, data);
+    const newEntry = { data, expiresAt: Date.now() + FRONTEND_CACHE_TTL_MS };
+    state.cache.set(requestPath, newEntry);
+    try { sessionStorage.setItem(cacheKey, JSON.stringify(newEntry)); } catch (_) {}
     return data;
   }
 
@@ -437,11 +432,13 @@
     renderKPIs(summary.kpi || {}, summary.trend || []);
     renderTrend(summary.trend || []);
     renderRuntime(summary.runtime || {});
+
     requestAnimationFrame(() => {
       if (requestID !== state.loadRequestID || signal.aborted) return;
       renderHealth(summary.health || []);
       renderAnalysis(analysis);
       renderEventOptions(analysis);
+
       requestAnimationFrame(() => {
         if (requestID !== state.loadRequestID || signal.aborted) return;
         if (eventRequestID === state.eventRequestID) {
@@ -557,7 +554,7 @@
         areaPaths += `<path d="${path} L ${pathPoints.at(-1).x} ${zeroY - 1} L ${pathPoints[0].x} ${zeroY - 1} Z" fill="url(#area-gradient-cache)" stroke="none" class="animated-area"/>`;
       }
       linePaths += `<path d="${path}" fill="none" stroke="${dimension.color}" stroke-width="2.5" ${dimension.dashed ? 'stroke-dasharray="6 6"' : ''} stroke-linecap="round" stroke-linejoin="round" class="animated-line"/>`;
-      if (points.length <= 120) {
+      if (points.length <= 60) {
         pathPoints.forEach((pt) => {
           pointDots += `<circle cx="${pt.x}" cy="${pt.y}" r="3.5" fill="${dimension.color}" stroke="var(--surface)" stroke-width="1.8" class="trend-point-dot"/>`;
         });

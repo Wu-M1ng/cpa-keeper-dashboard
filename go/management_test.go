@@ -35,15 +35,15 @@ func TestManagementSummaryAndEvents(t *testing.T) {
 		Path:   managementPrefix + "/summary",
 		Query:  url.Values{"range": {"all"}},
 	})
-	if summary.StatusCode != http.StatusOK || summary.Headers.Get("Cache-Control") != "no-cache" {
-		t.Fatalf("unexpected summary response: %+v", summary)
+	if summary.StatusCode != http.StatusOK || summary.Headers.Get("Cache-Control") != "no-store" {
+		t.Fatalf("unexpected summary response: status=%d headers=%+v body=%s", summary.StatusCode, summary.Headers, summary.Body)
 	}
 	var decoded summaryResponse
 	if err := json.Unmarshal(summary.Body, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.KPI.Requests != 3 {
-		t.Fatalf("summary requests = %d, want 3", decoded.KPI.Requests)
+		t.Fatalf("summary requests = %d, want 3 (body=%s)", decoded.KPI.Requests, summary.Body)
 	}
 
 	events := handleManagement(managementRequest{

@@ -47,17 +47,17 @@ func handleManagement(request managementRequest) managementResponse {
 
 	switch request.Method + " " + request.Path {
 	case http.MethodGet + " " + managementPrefix + "/summary":
-		return runtime.cachedRead(managementCacheKey(request), request.Headers, func() managementResponse {
+		return runtime.cachedRead(managementCacheKey(request), func() managementResponse {
 			result, err := querySummary(ctx, runtime.store, request.Query, now)
 			return queryJSON(result, err)
 		})
 	case http.MethodGet + " " + managementPrefix + "/analysis":
-		return runtime.cachedRead(managementCacheKey(request), request.Headers, func() managementResponse {
+		return runtime.cachedRead(managementCacheKey(request), func() managementResponse {
 			result, err := queryAnalysis(ctx, runtime.store, request.Query, now)
 			return queryJSON(result, err)
 		})
 	case http.MethodGet + " " + managementPrefix + "/interfaces":
-		return runtime.cachedRead(managementCacheKey(request), request.Headers, func() managementResponse {
+		return runtime.cachedRead(managementCacheKey(request), func() managementResponse {
 			result, err := queryInterfaces(ctx, runtime.store, request.Query, now)
 			return queryJSON(result, err)
 		})
