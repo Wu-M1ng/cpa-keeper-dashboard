@@ -53,7 +53,7 @@
   document.addEventListener('DOMContentLoaded', init);
 
   async function init() {
-    bindTheme();
+    initCPAThemeObserver();
     bindNavigation();
     bindRange();
     bindEvents();
@@ -114,24 +114,25 @@
     await loadActivePage(false);
   }
 
-  function bindTheme() {
-    applyTheme(state.theme);
-    $$('#theme-control button').forEach((button) => button.addEventListener('click', () => {
-      state.theme = button.dataset.theme || 'auto';
-      try { localStorage.setItem('usage-keeper-theme', state.theme); } catch (_) { /* Storage may be disabled. */ }
-      applyTheme(state.theme);
-    }));
+  function syncCPATheme() {
+    const host = window.parent !== window ? window.parent.document.documentElement : null;
+    const theme = host && (host.dataset.theme || host.dataset.cpaTheme) || '';
+    const normalized = theme === 'white' ? 'light' : theme;
+    if (normalized === 'dark' || normalized === 'light') {
+      document.documentElement.dataset.cpaTheme = normalized;
+    } else {
+      delete document.documentElement.dataset.cpaTheme;
+    }
   }
 
-  function applyTheme(theme) {
-    const explicit = theme === 'light' || theme === 'dark' ? theme : '';
-    if (explicit) document.documentElement.dataset.theme = explicit;
-    else delete document.documentElement.dataset.theme;
-    $$('#theme-control button').forEach((button) => {
-      const active = button.dataset.theme === theme;
-      button.classList.toggle('is-active', active);
-      button.setAttribute('aria-pressed', String(active));
-    });
+  function initCPAThemeObserver() {
+    syncCPATheme();
+    if (window.parent !== window) {
+      try {
+        const observer = new MutationObserver(syncCPATheme);
+        observer.observe(window.parent.document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-cpa-theme'] });
+      } catch (_) {}
+    }
   }
 
   function bindNavigation() {
@@ -191,8 +192,25 @@
     });
   }
 
+  function trimDecimal(num) {
+    return String(Number(num.toFixed(2)));
+  }
+
+  function formatTokenCompact(value) {
+    const amount = Number(value || 0);
+    if (Math.abs(amount) >= 1_000_000) return trimDecimal(amount / 1_000_000) + 'M';
+    if (Math.abs(amount) >= 1_000) return trimDecimal(amount / 1_000) + 'K';
+    return formatInt(amount);
+  }
+
+  function cacheHitRate(inputTokens, cacheReadTokens) {
+    const input = Number(inputTokens || 0);
+    const cacheRead = Number(cacheReadTokens || 0);
+    return input > 0 ? Math.max(0, Math.min(1, cacheRead / input)) : 0;
+  }
+
   function bindTrendInteractiveLegend() {
-    $$('#trend-legend .legend-chip').forEach((chip) => chip.setAttribute('aria-pressed', 'true'));
+    $$('#trend-legend .legend-chip').forEach((chip) => chip.setAttribute('aria-pressed', String(state.trendActiveDims[chip.dataset.dim] ?? true)));
     $('#trend-legend').addEventListener('click', (event) => {
       const chip = event.target.closest('.legend-chip');
       if (!chip) return;
@@ -511,10 +529,22 @@
     const rangeLabels = { '24h': '24 小时', '7d': '7 天', '30d': '30 天', all: '全部' };
     const rangeLabel = rangeLabels[kpi.range_label] || kpi.range_label || rangeLabels[state.range];
     $('#overview-kpis').innerHTML = `<div class="kpi-row-top">
-      <article class="kpi-panel"><div class="kpi-header"><h3 class="kpi-title">日均用量</h3><span class="kpi-badge-pill">统计范围 ${esc(rangeLabel)}</span></div><div class="kpi-daily-list">
-        <div class="kpi-daily-item"><span class="kpi-daily-label"><i class="icon-blue">${icon('activity')}</i>日均请求</span><strong class="kpi-daily-val kpi-num-animate">${formatCompact(kpi.avg_requests_daily)}</strong></div>
-        <div class="kpi-daily-item"><span class="kpi-daily-label"><i class="icon-purple">${icon('diamond')}</i>日均 Token</span><strong class="kpi-daily-val kpi-num-animate">${formatCompact(kpi.avg_tokens_daily)}</strong></div>
-        <div class="kpi-daily-item"><span class="kpi-daily-label"><i class="icon-orange">${icon('dollar')}</i>日均费用</span><strong class="kpi-daily-val kpi-num-animate">${formatMoney(kpi.avg_cost_daily)}</strong></div>
+      <article class="kpi-panel theme-daily"><div class="kpi-header"><h3 class="kpi-title">日均用量</h3><span class="kpi-badge-pill">统计范围 ${esc(rangeLabel)}</span></div><div class="kpi-daily-list">
+        <div class="kpi-daily-item">
+          <span class="kpi-daily-label"><i class="kpi-daily-dot bg-blue"></i>日均请求</span>
+          <div class="kpi-daily-track"><div class="kpi-daily-fill fill-blue" style="width:78%"></div></div>
+          <strong class="kpi-daily-val kpi-num-animate">${formatCompact(kpi.avg_requests_daily)}</strong>
+        </div>
+        <div class="kpi-daily-item">
+          <span class="kpi-daily-label"><i class="kpi-daily-dot bg-purple"></i>日均 Token</span>
+          <div class="kpi-daily-track"><div class="kpi-daily-fill fill-purple" style="width:85%"></div></div>
+          <strong class="kpi-daily-val kpi-num-animate">${formatCompact(kpi.avg_tokens_daily)}</strong>
+        </div>
+        <div class="kpi-daily-item">
+          <span class="kpi-daily-label"><i class="kpi-daily-dot bg-yellow"></i>日均费用</span>
+          <div class="kpi-daily-track"><div class="kpi-daily-fill fill-yellow" style="width:64%"></div></div>
+          <strong class="kpi-daily-val kpi-num-animate">${formatMoney(kpi.avg_cost_daily)}</strong>
+        </div>
       </div></article>
       <article class="kpi-panel theme-blue"><div class="kpi-header"><h3 class="kpi-title">总请求数</h3><div class="kpi-icon-badge theme-blue">${icon('activity')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatInt(kpi.requests)}</strong><div class="kpi-sub-info"><span class="dot-success">成功: ${formatInt(kpi.successes)}</span><span class="dot-failed">失败: ${formatInt(kpi.failures)}</span><span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span></div><div class="sparkline-box" style="--card-theme:var(--blue)">${makeSparkline(trend, 'requests', '#326ff5', 'requests')}</div></article>
       <article class="kpi-panel theme-purple"><div class="kpi-header"><h3 class="kpi-title">总 Token 消耗</h3><div class="kpi-icon-badge theme-purple">${icon('diamond')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatCompact(kpi.total_tokens)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span><span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--purple)">${makeSparkline(trend, 'tokens', '#7738ee', 'tokens')}</div></article>
@@ -560,34 +590,48 @@
       point.reasoning > 0 || point.actual_cost > 0 || point.standard_cost > 0);
     state.lastTrendPoints = points;
     if (!points.length) return empty(host, '当前范围没有用量');
+
+    const dimensions = [
+      { key: 'input', label: '输入', color: '#326ff5', axis: 'token' },
+      { key: 'output', label: '输出', color: '#20b95a', axis: 'token' },
+      { key: 'cache_write', label: '缓存创建', color: '#ff7a12', axis: 'token' },
+      { key: 'cache_read', label: '缓存读取', color: '#18ad9d', axis: 'token', area: true },
+      { key: 'hit_rate', label: '缓存命中率', color: '#7738ee', axis: 'rate', dashed: true },
+    ];
+    const active = state.trendActiveDims;
+    const activeDimensions = dimensions.filter((dim) => active[dim.key]);
+
+    if (!activeDimensions.length) {
+      return empty(host, '已取消所有指标，点击上方图例恢复');
+    }
+
     const styles = getComputedStyle(host);
     const horizontalPadding = parseFloat(styles.paddingLeft || '0') + parseFloat(styles.paddingRight || '0');
     const width = Math.max(720, Math.round(host.clientWidth - horizontalPadding)), height = 340, left = 65, right = 55, top = 25, bottom = 45;
     const plotWidth = width - left - right, plotHeight = height - top - bottom, zeroY = top + plotHeight;
-    const active = state.trendActiveDims;
-    const maxToken = Math.max(1, ...points.map((point) => Math.max(
-      active.input ? point.input : 0, active.output ? point.output : 0,
-      active.cache_write ? point.cache_write : 0, active.cache_read ? point.cache_read : 0,
-    ))) * 1.15;
+
+    const tokenKeys = dimensions.filter((dim) => dim.axis === 'token' && active[dim.key]).map((dim) => dim.key);
+    const tokenValues = tokenKeys.flatMap((key) => points.map((p) => p[key] || 0));
+    const hasTokenActive = tokenKeys.length > 0;
+    const maxToken = hasTokenActive ? Math.max(1, ...tokenValues) * 1.15 : 1;
+
     const x = (index) => left + (points.length === 1 ? plotWidth / 2 : index * plotWidth / (points.length - 1));
     const tokenY = (value) => Math.min(zeroY, Math.max(top, zeroY - value / maxToken * plotHeight));
-    const rateY = (value) => Math.min(zeroY, Math.max(top, zeroY - value * plotHeight));
+    const rateY = (value) => Math.min(zeroY, Math.max(top, zeroY - Math.max(0, Math.min(1, value)) * plotHeight));
+
     const leftGrid = [0, .25, .5, .75, 1].map((ratio) => {
       const y = top + plotHeight * (1 - ratio);
-      return `<line class="${ratio ? 'chart-grid-line' : 'chart-zero-line'}" x1="${left}" y1="${y}" x2="${width-right}" y2="${y}"/><text class="chart-left-label" x="${left-10}" y="${y+4}">${formatAxisNumber(maxToken * ratio)}</text>`;
+      const labelText = hasTokenActive ? formatTokenCompact(maxToken * ratio) : (ratio === 0 ? '0' : '无 Token 系列');
+      return `<line class="${ratio ? 'chart-grid-line' : 'chart-zero-line'}" x1="${left}" y1="${y}" x2="${width-right}" y2="${y}"/><text class="chart-left-label" x="${left-10}" y="${y+4}">${labelText}</text>`;
     }).join('');
     const rightGrid = [0, .2, .4, .6, .8, 1].map((ratio) => `<text class="chart-right-label" x="${width-right+10}" y="${top + plotHeight * (1-ratio) + 4}">${Math.round(ratio*100)}%</text>`).join('');
     const labelStep = Math.max(1, Math.floor(points.length / 7));
     const xLabels = points.map((point, index) => (index % labelStep === 0 || index === points.length - 1) ? `<text class="chart-x-label" x="${x(index)}" y="${zeroY+25}">${esc(formatTime(point.timestamp_ms, state.range))}</text>` : '').join('');
-    const dimensions = [
-      { key: 'cache_read', color: '#18ad9d', area: true },
-      { key: 'input', color: '#326ff5' }, { key: 'output', color: '#20b95a' },
-      { key: 'cache_write', color: '#ff7a12' }, { key: 'hit_rate', color: '#7738ee', dashed: true, rate: true },
-    ];
+
     let linePaths = '', areaPaths = '', pointDots = '';
     dimensions.forEach((dimension) => {
       if (!active[dimension.key]) return;
-      const pathPoints = points.map((point, index) => ({ x: x(index), y: dimension.rate ? rateY(point[dimension.key]) : tokenY(point[dimension.key]) }));
+      const pathPoints = points.map((point, index) => ({ x: x(index), y: dimension.axis === 'rate' ? rateY(point[dimension.key]) : tokenY(point[dimension.key]) }));
       const path = buildClampedSmoothPath(pathPoints, top, zeroY);
       if (dimension.area && pathPoints.length > 1) {
         areaPaths += `<path d="${path} L ${pathPoints.at(-1).x} ${zeroY - 1} L ${pathPoints[0].x} ${zeroY - 1} Z" fill="url(#area-gradient-cache)" stroke="none" class="animated-area"/>`;
@@ -622,12 +666,12 @@
       const index = points.length === 1 ? 0 : Math.max(0, Math.min(points.length - 1, Math.round((viewX-left)/step)));
       const point = points[index], pointX = x(index);
       crosshair.setAttribute('x1', pointX); crosshair.setAttribute('x2', pointX); crosshair.hidden = false;
-      dots.innerHTML = dimensions.filter((dimension) => active[dimension.key]).map((dimension) => `<circle cx="${pointX}" cy="${dimension.rate ? rateY(point[dimension.key]) : tokenY(point[dimension.key])}" r="5.5" fill="${dimension.color}" stroke="var(--surface)" stroke-width="2.5" class="active-hover-dot"/>`).join('');
-      const rows = [
-        ['input', '输入', '#326ff5', formatCompact], ['output', '输出', '#20b95a', formatCompact],
-        ['cache_write', '缓存创建', '#ff7a12', formatCompact], ['cache_read', '缓存读取', '#18ad9d', formatCompact],
-        ['hit_rate', '缓存命中率', '#7738ee', formatPercent],
-      ].filter(([key]) => active[key]).map(([key, label, color, formatter]) => `<div class="tt-row"><span class="tt-row-left"><span class="tt-box ${key === 'hit_rate' ? 'tt-box-dashed' : ''}" style="background:${color}"></span>${label}</span><strong>${formatter(point[key])}</strong></div>`).join('');
+      dots.innerHTML = dimensions.filter((dimension) => active[dimension.key]).map((dimension) => `<circle cx="${pointX}" cy="${dimension.axis === 'rate' ? rateY(point[dimension.key]) : tokenY(point[dimension.key])}" r="5.5" fill="${dimension.color}" stroke="var(--surface)" stroke-width="2.5" class="active-hover-dot"/>`).join('');
+      const rows = dimensions.filter((dimension) => active[dimension.key]).map((dimension) => {
+        const val = point[dimension.key] || 0;
+        const formatted = dimension.axis === 'rate' ? formatPercent(val) : formatTokenCompact(val);
+        return `<div class="tt-row"><span class="tt-row-left"><span class="tt-box ${dimension.dashed ? 'tt-box-dashed' : ''}" style="background:${dimension.color}"></span>${dimension.label}</span><strong>${formatted}</strong></div>`;
+      }).join('');
       tooltip.innerHTML = `<div class="tt-header">${esc(formatDateTime(point.timestamp_ms))}</div><div class="tt-body">${rows}</div><div class="tt-footer">实际费用: <strong>${formatMoney(point.actual_cost)}</strong> · 标准费用: <strong>${formatMoney(point.standard_cost)}</strong></div>`;
       const halfWidth = 135;
       tooltip.style.left = `${Math.max(halfWidth+12, Math.min(window.innerWidth-halfWidth-12, event.clientX))}px`;
@@ -797,35 +841,189 @@
     $('#token-composition').innerHTML = `<div class="token-stack">${stackItems}</div><div class="token-legend">${legendItems}</div>`;
   }
 
-  function bindTokenInteractivity() {
-    const container = $('#token-composition');
-    const tooltip = $('#floating-tooltip');
-    container.addEventListener('mouseover', (event) => {
-      const item = event.target.closest('.token-stack-segment, .token-legend-item');
+  function hitRateBadge(rate) {
+    const val = Number(rate || 0);
+    const percentage = (val * 100).toFixed(1);
+    const cls = val >= 0.5 ? 'is-high' : val > 0 ? 'is-mid' : '';
+    return `<span class="hit-rate-badge ${cls}">${percentage}%</span>`;
+  }
+
+  function bindDistributionInteractivity() {
+    const grid = $('#distribution-grid');
+    if (!grid) return;
+
+    grid.addEventListener('mouseover', (event) => {
+      const item = event.target.closest('.donut-segment, .distribution-row');
       if (!item) return;
-      const { idx, name, val, compact, pct, color } = item.dataset;
-      container.classList.add('has-hover');
-      container.querySelectorAll('.token-stack-segment, .token-legend-item').forEach((el) => {
+      const card = item.closest('.distribution-card');
+      if (!card) return;
+      const { idx, name, reqs, pct, color } = item.dataset;
+      card.classList.add('has-hover');
+      card.querySelectorAll('.donut-segment, .distribution-row').forEach((el) => {
         el.classList.toggle('is-active', el.dataset.idx === idx);
       });
-      tooltip.innerHTML = `<div class="fgt-title" style="color:${color}">${esc(name)} Token</div>
-        <div class="fgt-row"><span>用量占比</span><strong>${esc(pct)}</strong></div>
-        <div class="fgt-row"><span>Token 消耗</span><strong>${esc(val)} (${esc(compact)})</strong></div>`;
+      const nameEl = card.querySelector('.dct-name');
+      const valEl = card.querySelector('.dct-val');
+      if (nameEl && valEl) {
+        nameEl.textContent = name || '未识别';
+        nameEl.style.color = color || 'var(--text)';
+        valEl.textContent = `${pct}`;
+      }
+    });
+
+    grid.addEventListener('mouseout', (event) => {
+      const card = event.target.closest('.distribution-card');
+      if (!card || card.contains(event.relatedTarget)) return;
+      card.classList.remove('has-hover');
+      card.querySelectorAll('.donut-segment, .distribution-row').forEach((el) => el.classList.remove('is-active'));
+      const nameEl = card.querySelector('.dct-name');
+      const valEl = card.querySelector('.dct-val');
+      if (nameEl && valEl) {
+        nameEl.textContent = '占比率';
+        nameEl.style.color = 'var(--muted)';
+        valEl.textContent = 'TOP 5';
+      }
+    });
+  }
+
+  function bindTokenInteractivity() {
+    bindDistributionInteractivity();
+    const container = $('#token-composition');
+    const tooltip = $('#floating-tooltip');
+    let pinnedTrigger = null;
+
+    function populateTokenTooltip(trigger) {
+      const { in: tokenIn, out: tokenOut, cacheRead, cacheWrite, reasoning, total } = trigger.dataset;
+      tooltip.innerHTML = `<div class="fgt-title">Token 明细</div>
+        <div class="fgt-row"><span>输入 Token</span><strong>${esc(tokenIn)}</strong></div>
+        <div class="fgt-row"><span>输出 Token</span><strong>${esc(tokenOut)}</strong></div>
+        ${cacheRead && cacheRead !== '0' ? `<div class="fgt-row"><span>缓存读取 Token</span><strong>${esc(cacheRead)}</strong></div>` : ''}
+        ${cacheWrite && cacheWrite !== '0' ? `<div class="fgt-row"><span>缓存创建 Token</span><strong>${esc(cacheWrite)}</strong></div>` : ''}
+        ${reasoning && reasoning !== '0' ? `<div class="fgt-row"><span>思考/推理 Token</span><strong>${esc(reasoning)}</strong></div>` : ''}
+        <div class="fgt-footer" style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.15)">总 Token: <strong style="color:#38bdf8">${esc(total)}</strong></div>`;
+    }
+
+    if (container) {
+      container.addEventListener('mouseover', (event) => {
+        const item = event.target.closest('.token-stack-segment, .token-legend-item');
+        if (!item || pinnedTrigger) return;
+        const { idx, name, val, compact, pct, color } = item.dataset;
+        container.classList.add('has-hover');
+        container.querySelectorAll('.token-stack-segment, .token-legend-item').forEach((el) => {
+          el.classList.toggle('is-active', el.dataset.idx === idx);
+        });
+        tooltip.innerHTML = `<div class="fgt-title" style="color:${color}">${esc(name)} Token</div>
+          <div class="fgt-row"><span>用量占比</span><strong>${esc(pct)}</strong></div>
+          <div class="fgt-row"><span>Token 消耗</span><strong>${esc(val)} (${esc(compact)})</strong></div>`;
+        tooltip.classList.add('is-visible');
+      });
+      container.addEventListener('mousemove', (event) => {
+        if (!pinnedTrigger) positionFloatingTooltip(tooltip, event);
+      });
+      container.addEventListener('mouseout', (event) => {
+        if (pinnedTrigger || container.contains(event.relatedTarget)) return;
+        container.classList.remove('has-hover');
+        container.querySelectorAll('.token-stack-segment, .token-legend-item').forEach((el) => el.classList.remove('is-active'));
+        tooltip.classList.remove('is-visible');
+      });
+    }
+
+    document.addEventListener('mouseover', (event) => {
+      if (pinnedTrigger) return;
+      const trigger = event.target.closest('[data-tooltip-type="token-detail"]');
+      if (!trigger) return;
+      populateTokenTooltip(trigger);
       tooltip.classList.add('is-visible');
     });
-    container.addEventListener('mousemove', (event) => positionFloatingTooltip(tooltip, event));
-    container.addEventListener('mouseout', (event) => {
-      if (container.contains(event.relatedTarget)) return;
-      container.classList.remove('has-hover');
-      container.querySelectorAll('.token-stack-segment, .token-legend-item').forEach((el) => el.classList.remove('is-active'));
-      tooltip.classList.remove('is-visible');
+
+    document.addEventListener('mousemove', (event) => {
+      if (pinnedTrigger || !tooltip.classList.contains('is-visible')) return;
+      const trigger = event.target.closest('[data-tooltip-type="token-detail"]');
+      if (trigger) positionFloatingTooltip(tooltip, event);
     });
+
+    document.addEventListener('mouseout', (event) => {
+      if (pinnedTrigger) return;
+      const trigger = event.target.closest('[data-tooltip-type="token-detail"]');
+      if (trigger && !trigger.contains(event.relatedTarget)) {
+        tooltip.classList.remove('is-visible');
+      }
+    });
+
+    document.addEventListener('click', (event) => {
+      const btn = event.target.closest('.token-info-trigger');
+      const trigger = event.target.closest('[data-tooltip-type="token-detail"]');
+      if (btn || trigger) {
+        const targetCell = btn ? btn.closest('[data-tooltip-type="token-detail"]') : trigger;
+        if (pinnedTrigger === targetCell) {
+          pinnedTrigger = null;
+          $$('.token-info-trigger.is-pinned').forEach((el) => el.classList.remove('is-pinned'));
+          tooltip.classList.remove('is-visible');
+        } else {
+          pinnedTrigger = targetCell;
+          $$('.token-info-trigger.is-pinned').forEach((el) => el.classList.remove('is-pinned'));
+          const btnEl = targetCell?.querySelector('.token-info-trigger');
+          if (btnEl) btnEl.classList.add('is-pinned');
+          populateTokenTooltip(targetCell);
+          positionFloatingTooltip(tooltip, event);
+          tooltip.classList.add('is-visible');
+        }
+      } else if (pinnedTrigger && !tooltip.contains(event.target)) {
+        pinnedTrigger = null;
+        $$('.token-info-trigger.is-pinned').forEach((el) => el.classList.remove('is-pinned'));
+        tooltip.classList.remove('is-visible');
+      }
+    });
+  }
+
+  function renderTokenCell(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens = 0, reasoningTokens = 0, totalTokens = 0) {
+    const input = Math.max(0, Number(inputTokens || 0));
+    const output = Math.max(0, Number(outputTokens || 0));
+    const cacheRead = Math.max(0, Number(cacheReadTokens || 0));
+    const cacheWrite = Math.max(0, Number(cacheCreationTokens || 0));
+    const reasoning = Math.max(0, Number(reasoningTokens || 0));
+    const total = Math.max(0, Number(totalTokens || (input + output + cacheWrite + reasoning)));
+    const hasCache = cacheRead > 0;
+
+    const svgDown = `<svg class="token-icon-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 5v14M5 12l7 7 7-7"/></svg>`;
+    const svgUp = `<svg class="token-icon-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 19V5M5 12l7-7 7 7"/></svg>`;
+    const svgCache = `<svg class="token-icon-cache" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>`;
+
+    return `<div class="token-compound-cell" data-tooltip-type="token-detail"
+      data-in="${formatInt(input)}" data-out="${formatInt(output)}"
+      data-cache-read="${formatInt(cacheRead)}" data-cache-write="${formatInt(cacheWrite)}"
+      data-reasoning="${formatInt(reasoning)}" data-total="${formatInt(total)}">
+      <div class="token-cell-lines">
+        <div class="token-line-primary">
+          <span class="token-badge-in" title="输入 Token">${svgDown} ${formatTokenCompact(input)}</span>
+          <span class="token-badge-out" title="输出 Token">${svgUp} ${formatTokenCompact(output)}</span>
+        </div>
+        ${hasCache ? `<div class="token-line-sub"><span class="token-badge-cache" title="缓存读取">${svgCache} ${formatTokenCompact(cacheRead)}</span></div>` : ''}
+      </div>
+      <button type="button" class="token-info-trigger" title="点击展开/固定 Token 明细" aria-label="查看 Token 明细">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+      </button>
+    </div>`;
   }
 
   function renderModelTable(models) {
     const body = $('#model-table');
-    if (!models.length) return emptyRow(body, 6);
-    body.innerHTML = models.map((item) => `<tr><td><span class="cell-main" title="${esc(item.name)}">${esc(item.name)}</span></td><td class="text-center">${formatInt(item.requests)}</td><td class="text-center">${statusBadge(item.success_rate)}</td><td class="text-center">${formatCompact(item.total_tokens)}</td><td class="text-center">${formatDuration(item.avg_latency_ms)}</td><td class="text-center">${formatMoney(item.cost_usd)}</td></tr>`).join('');
+    if (!models.length) return emptyRow(body, 7);
+    body.innerHTML = models.map((item) => {
+      const input = item.tokens?.input || 0;
+      const cacheRead = item.tokens?.cache_read || 0;
+      const rate = cacheHitRate(input, cacheRead);
+      const percentage = (rate * 100).toFixed(1);
+      return `<tr>
+        <td><span class="cell-main" title="${esc(item.name)}">${esc(item.name)}</span></td>
+        <td class="text-center">${formatInt(item.requests)}</td>
+        <td class="text-center">${statusBadge(item.success_rate)}</td>
+        <td class="text-center"><div class="progress-cell"><span>${percentage}%</span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage}%;background:var(--purple)"></div></div></div></td>
+        <td class="text-center" title="${formatInt(item.total_tokens)}">${formatTokenCompact(item.total_tokens)}</td>
+        <td class="text-center">${formatDuration(item.avg_latency_ms)}</td>
+        <td class="text-center">${formatMoney(item.cost_usd)}</td>
+      </tr>`;
+    }).join('');
   }
 
   async function loadInterfaces(force, signal, requestID) {
@@ -944,26 +1142,28 @@
     $('#page-label').textContent = data.pages ? `第 ${data.page} / ${data.pages} 页` : '第 0 页';
     $('#page-prev').disabled = data.page <= 1;
     $('#page-next').disabled = !data.pages || data.page >= data.pages;
-    if (!(data.events || []).length) return emptyRow(body, 11);
+    if (!(data.events || []).length) return emptyRow(body, 8);
     body.innerHTML = data.events.map((event) => {
       const inputTokens = Math.max(0, Number(event.input_tokens || 0));
       const cacheReadTokens = Math.max(0, Number(event.cache_read_tokens || event.cached_tokens || 0));
       const cacheCreationTokens = Math.max(0, Number(event.cache_creation_tokens || 0));
       const uncachedInputTokens = Math.max(0, inputTokens - cacheReadTokens - cacheCreationTokens);
+      const outputTokens = Math.max(0, Number(event.output_tokens || 0));
+      const reasoningTokens = Math.max(0, Number(event.reasoning_tokens || 0));
+      const totalTokens = Math.max(0, Number(event.total_tokens || 0));
+      const rate = cacheHitRate(inputTokens, cacheReadTokens);
       const ttft = Number(event.ttft_ms || 0) > 0 ? formatDuration(event.ttft_ms) : '--';
       const status = event.failed ? `失败${event.status_code ? ` ${event.status_code}` : ''}` : '成功';
+      const tokenCellHtml = renderTokenCell(uncachedInputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens);
       return `<tr>
-        <td><span class="cell-main">${esc(formatDateTime(event.timestamp_ms))}</span></td>
-        <td><span class="cell-main" title="${esc(event.model)}">${esc(event.model)}</span><span class="cell-sub" title="${esc(event.upstream_label)}">${esc(event.upstream_label)}</span></td>
-        <td class="text-center"><span class="cell-main">${esc(event.reasoning_effort || '--')}</span></td>
-        <td class="text-center"><span class="status-badge ${event.failed ? 'is-failure' : ''}">${status}</span>${event.failure ? `<span class="cell-sub" title="${esc(event.failure)}">${esc(event.failure)}</span>` : ''}</td>
-        <td class="text-center"><span class="cell-main">${formatDuration(event.latency_ms)}</span><span class="cell-sub">首字 ${ttft}</span></td>
-        <td class="text-center">${formatInt(uncachedInputTokens)}</td>
-        <td class="text-center">${formatInt(event.output_tokens)}</td>
-        <td class="text-center">${formatInt(event.reasoning_tokens)}</td>
-        <td class="text-center">${formatInt(cacheReadTokens)}</td>
-        <td class="text-center">${formatInt(cacheCreationTokens)}</td>
-        <td class="text-center"><strong>${formatInt(event.total_tokens)}</strong></td>
+        <td data-label="时间"><span class="cell-main">${esc(formatDateTime(event.timestamp_ms))}</span></td>
+        <td data-label="模型 / 渠道"><span class="cell-main" title="${esc(event.model)}">${esc(event.model)}</span><span class="cell-sub" title="${esc(event.upstream_label)}">${esc(event.upstream_label)}</span></td>
+        <td data-label="推理强度" class="text-center"><span class="cell-main">${esc(event.reasoning_effort || '--')}</span></td>
+        <td data-label="状态" class="text-center"><span class="status-badge ${event.failed ? 'is-failure' : ''}">${status}</span>${event.failure ? `<span class="cell-sub" title="${esc(event.failure)}">${esc(event.failure)}</span>` : ''}</td>
+        <td data-label="用时 / 首字" class="text-center"><span class="cell-main">${formatDuration(event.latency_ms)}</span><span class="cell-sub">首字 ${ttft}</span></td>
+        <td data-label="Token 明细" class="text-center">${tokenCellHtml}</td>
+        <td data-label="命中率" class="text-center">${hitRateBadge(rate)}</td>
+        <td data-label="总 Token" class="text-center" title="${formatInt(totalTokens)}"><strong>${formatTokenCompact(totalTokens)}</strong></td>
       </tr>`;
     }).join('');
   }

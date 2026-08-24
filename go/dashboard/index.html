@@ -35,25 +35,26 @@
   </svg>
 
   <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand"><span class="brand-mark">K</span><span><strong>用量 Keeper</strong><small>CLIProxyAPI</small></span></div>
-      <div class="nav-heading">工作区</div>
+    <header class="top-nav">
+      <div class="brand">
+        <span class="brand-mark">K</span>
+        <span class="brand-copy"><strong>用量 Keeper</strong><small>CLIProxyAPI</small></span>
+      </div>
       <nav class="primary-nav" aria-label="主要页面">
-        <button class="nav-item is-active" data-page-target="overview"><svg><use href="#i-layout-dashboard"/></svg><span>总览</span></button>
-        <button class="nav-item" data-page-target="interfaces"><svg><use href="#i-key"/></svg><span>接口</span></button>
-        <button class="nav-item" data-page-target="settings"><svg><use href="#i-settings"/></svg><span>设置</span></button>
+        <button class="nav-item is-active" data-page-target="overview">总览</button>
+        <button class="nav-item" data-page-target="interfaces">接口</button>
+        <button class="nav-item" data-page-target="settings">设置</button>
       </nav>
-      <div class="sidebar-status"><span id="connection-dot" class="status-dot"></span><span id="connection-label">正在连接</span></div>
-    </aside>
+      <div class="top-nav-status">
+        <span id="connection-dot" class="status-dot"></span>
+        <span id="connection-label">管理连接</span>
+      </div>
+    </header>
 
     <div class="workspace">
       <header class="topbar">
         <div class="topbar-heading"><span class="topbar-kicker">KEEPER / USAGE</span><h1 id="page-title">总览</h1><p id="page-subtitle">运行状态与用量脉搏</p></div>
         <div class="topbar-actions">
-          <span class="topbar-state"><i id="topbar-state-dot" class="status-dot"></i><span id="topbar-state-label">管理连接</span></span>
-          <div class="theme-switcher" id="theme-control" role="group" aria-label="主题">
-            <button data-theme="light">浅色</button><button data-theme="dark">深色</button><button data-theme="auto">自动</button>
-          </div>
           <div class="segmented" id="range-control" aria-label="时间范围">
             <button class="is-active" data-range="24h">24 小时</button><button data-range="7d">7 天</button><button data-range="30d">30 天</button><button data-range="all">全部</button>
           </div>
@@ -69,11 +70,11 @@
               <div class="panel-head">
                 <div><h2>用量趋势</h2><p id="trend-caption">输入、输出、缓存与命中率多维度趋势对比</p></div>
                 <div class="trend-legend-interactive" id="trend-legend">
-                  <button class="legend-chip is-active" data-dim="input" style="--chip-color:#326ff5"><span class="chip-circle" style="background:#326ff5"></span><span>输入</span></button>
-                  <button class="legend-chip is-active" data-dim="output" style="--chip-color:#20b95a"><span class="chip-circle" style="background:#20b95a"></span><span>输出</span></button>
-                  <button class="legend-chip is-active" data-dim="cache_write" style="--chip-color:#ff7a12"><span class="chip-circle" style="background:#ff7a12"></span><span>缓存创建</span></button>
-                  <button class="legend-chip is-active" data-dim="cache_read" style="--chip-color:#18ad9d"><span class="chip-circle" style="background:#18ad9d"></span><span>缓存读取</span></button>
-                  <button class="legend-chip is-active" data-dim="hit_rate" style="--chip-color:#7738ee"><span class="chip-circle chip-dashed" style="background:#7738ee;border:2px dashed #7738ee"></span><span>缓存命中率</span></button>
+                  <button class="legend-chip is-active" data-dim="input" aria-pressed="true" style="--chip-color:#326ff5"><span class="chip-circle" style="background:#326ff5"></span><span>输入</span></button>
+                  <button class="legend-chip is-active" data-dim="output" aria-pressed="true" style="--chip-color:#20b95a"><span class="chip-circle" style="background:#20b95a"></span><span>输出</span></button>
+                  <button class="legend-chip is-active" data-dim="cache_write" aria-pressed="true" style="--chip-color:#ff7a12"><span class="chip-circle" style="background:#ff7a12"></span><span>缓存创建</span></button>
+                  <button class="legend-chip is-active" data-dim="cache_read" aria-pressed="true" style="--chip-color:#18ad9d"><span class="chip-circle" style="background:#18ad9d"></span><span>缓存读取</span></button>
+                  <button class="legend-chip is-active" data-dim="hit_rate" aria-pressed="true" style="--chip-color:#7738ee"><span class="chip-circle chip-dashed" style="background:#7738ee;border:2px dashed #7738ee"></span><span>缓存命中率</span></button>
                 </div>
               </div>
               <div id="trend-chart" class="chart-host-interactive"></div>
@@ -96,7 +97,7 @@
             <section class="panel token-panel"><div class="panel-head"><div><h2>Token 构成</h2><p>输入、输出、缓存与推理消耗</p></div><strong id="token-total">0</strong></div><div id="token-composition"></div></section>
             <section class="table-section">
               <div class="section-head"><div><h2>模型统计</h2><p>请求质量、消耗与成本</p></div></div>
-              <div class="table-wrap"><table class="model-table"><thead><tr><th scope="col">模型</th><th scope="col">请求</th><th scope="col">成功率</th><th scope="col">Token</th><th scope="col">平均延迟</th><th scope="col">费用</th></tr></thead><tbody id="model-table"></tbody></table></div>
+              <div class="table-wrap"><table class="model-table"><thead><tr><th scope="col">模型</th><th scope="col">请求</th><th scope="col">成功率</th><th scope="col">缓存命中率</th><th scope="col">Token</th><th scope="col">平均延迟</th><th scope="col">费用</th></tr></thead><tbody id="model-table"></tbody></table></div>
             </section>
           </div>
           <div class="runtime-strip" id="runtime-strip"></div>
@@ -112,7 +113,7 @@
             </form>
             <section class="table-section event-table-section">
               <div class="section-head"><div><h2>请求明细记录</h2><p id="event-count">0 条记录</p></div></div>
-              <div class="table-wrap"><table class="event-table"><thead><tr><th scope="col">时间</th><th scope="col">模型 / 渠道</th><th scope="col">推理强度</th><th scope="col">状态</th><th scope="col">用时 / 首字</th><th scope="col">非缓存输入</th><th scope="col">输出</th><th scope="col">思考</th><th scope="col">缓存命中</th><th scope="col">缓存创建</th><th scope="col">总 Token</th></tr></thead><tbody id="event-table"></tbody></table></div>
+              <div class="table-wrap"><table class="event-table"><thead><tr><th scope="col">时间</th><th scope="col">模型 / 渠道</th><th scope="col">推理强度</th><th scope="col">状态</th><th scope="col">用时 / 首字</th><th scope="col">Token 明细</th><th scope="col">命中率</th><th scope="col">总 Token</th></tr></thead><tbody id="event-table"></tbody></table></div>
               <div class="pagination"><button id="page-prev" class="icon-button" title="上一页" aria-label="上一页"><svg><use href="#i-chevron-left"/></svg></button><span id="page-label">第 1 页</span><button id="page-next" class="icon-button" title="下一页" aria-label="下一页"><svg><use href="#i-chevron-right"/></svg></button></div>
             </section>
           </div>

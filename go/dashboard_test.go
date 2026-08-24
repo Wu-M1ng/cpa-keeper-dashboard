@@ -28,7 +28,19 @@ func TestDashboardAssetsAreEmbeddedAndSelfContained(t *testing.T) {
 		t.Fatal("analysis and events must not remain as separate navigation pages")
 	}
 	for _, expected := range []string{
-		`class="kpi-section"`,
+		`class="top-nav"`,
+		`id="overview-kpis"`,
+		`data-page-target="overview"`,
+		`data-page-target="interfaces"`,
+		`data-page-target="settings"`,
+		`data-dim="input"`,
+		`data-dim="output"`,
+		`data-dim="cache_write"`,
+		`data-dim="cache_read"`,
+		`data-dim="hit_rate"`,
+		"缓存命中率",
+		"缓存创建",
+		"缓存读取",
 		`id="trend-legend"`,
 		"trend-legend-interactive",
 		"chart-host-interactive",
@@ -38,12 +50,19 @@ func TestDashboardAssetsAreEmbeddedAndSelfContained(t *testing.T) {
 		"最近5天，15分钟一个网格",
 		`id="health-success-count"`,
 		`id="health-failure-count"`,
-		"时间", "模型 / 渠道", "推理强度", "状态", "用时 / 首字", "非缓存输入",
-		"输出", "思考", "缓存命中", "缓存创建", "总 Token",
+		"时间", "模型 / 渠道", "推理强度", "状态", "用时 / 首字", "Token 明细",
+		"命中率", "总 Token",
 	} {
 		if !bytes.Contains(root.Body, []byte(expected)) {
 			t.Fatalf("dashboard HTML is missing %q", expected)
 		}
+	}
+	bodyStr := string(root.Body)
+	if strings.Index(bodyStr, `id="overview-kpis"`) > strings.Index(bodyStr, `id="trend-chart"`) {
+		t.Fatal("overview KPI cards must remain before the trend chart")
+	}
+	if strings.Contains(bodyStr, `class="sidebar"`) {
+		t.Fatal("dashboard navigation must use the top navigation")
 	}
 	if bytes.Contains(root.Body, []byte(">端点<")) || bytes.Contains(root.Body, []byte("输入模型、渠道、端点")) {
 		t.Fatal("event table must not expose an endpoint column")
@@ -63,6 +82,22 @@ func TestDashboardAssetsAreEmbeddedAndSelfContained(t *testing.T) {
 	}
 	if bytes.Contains(js.Body, []byte("fetch(path.startsWith('/') ? path : API_ROOT + path")) {
 		t.Fatal("JS asset still sends dashboard API requests to the site root")
+	}
+	for _, expected := range []string{
+		"kpi-row-top",
+		"kpi-row-bottom",
+		"trendActiveDims",
+		"cache_write",
+		"cache_read",
+		"hit_rate",
+		"aria-pressed",
+		"formatTokenCompact",
+		"cacheHitRate",
+		"MutationObserver",
+	} {
+		if !bytes.Contains(js.Body, []byte(expected)) {
+			t.Fatalf("dashboard JS is missing visual contract %q", expected)
+		}
 	}
 	for _, expected := range []string{
 		"const AUTO_REFRESH_MS = 60_000;",
