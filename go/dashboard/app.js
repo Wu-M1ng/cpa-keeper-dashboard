@@ -42,7 +42,7 @@
   const icon = (name) => `<svg aria-hidden="true"><use href="#i-${name}"></use></svg>`;
   const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
   const number = new Intl.NumberFormat('zh-CN');
-  const compact = new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 });
+  const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
   const money = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 });
   const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const healthDateFormatter = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', timeZone: CHINA_TIME_ZONE });
@@ -530,30 +530,31 @@
     const rangeLabel = rangeLabels[kpi.range_label] || kpi.range_label || rangeLabels[state.range];
     $('#overview-kpis').innerHTML = `<div class="kpi-row-top">
       <article class="kpi-panel theme-daily"><div class="kpi-header"><h3 class="kpi-title">日均用量</h3><span class="kpi-badge-pill">统计范围 ${esc(rangeLabel)}</span></div><div class="kpi-daily-list">
-        <div class="kpi-daily-item">
-          <span class="kpi-daily-label"><i class="kpi-daily-dot bg-blue"></i>日均请求</span>
-          <div class="kpi-daily-track"><div class="kpi-daily-fill fill-blue" style="width:78%"></div></div>
-          <strong class="kpi-daily-val kpi-num-animate">${formatCompact(kpi.avg_requests_daily)}</strong>
+        <div class="kpi-daily-item" style="--metric-accent: var(--blue);">
+          <span class="kpi-di-icon">${icon('activity')}</span>
+          <span class="kpi-di-copy"><span class="kpi-di-label">日均请求</span></span>
+          <strong class="kpi-di-val kpi-num-animate" data-countup="${kpi.avg_requests_daily}" data-format="compact">0</strong>
         </div>
-        <div class="kpi-daily-item">
-          <span class="kpi-daily-label"><i class="kpi-daily-dot bg-purple"></i>日均 Token</span>
-          <div class="kpi-daily-track"><div class="kpi-daily-fill fill-purple" style="width:85%"></div></div>
-          <strong class="kpi-daily-val kpi-num-animate">${formatCompact(kpi.avg_tokens_daily)}</strong>
+        <div class="kpi-daily-item" style="--metric-accent: var(--purple);">
+          <span class="kpi-di-icon">${icon('diamond')}</span>
+          <span class="kpi-di-copy"><span class="kpi-di-label">日均 Token</span></span>
+          <strong class="kpi-di-val kpi-num-animate" data-countup="${kpi.avg_tokens_daily}" data-format="compact">0</strong>
         </div>
-        <div class="kpi-daily-item">
-          <span class="kpi-daily-label"><i class="kpi-daily-dot bg-yellow"></i>日均费用</span>
-          <div class="kpi-daily-track"><div class="kpi-daily-fill fill-yellow" style="width:64%"></div></div>
-          <strong class="kpi-daily-val kpi-num-animate">${formatMoney(kpi.avg_cost_daily)}</strong>
+        <div class="kpi-daily-item" style="--metric-accent: var(--yellow);">
+          <span class="kpi-di-icon">${icon('dollar')}</span>
+          <span class="kpi-di-copy"><span class="kpi-di-label">日均费用</span></span>
+          <strong class="kpi-di-val kpi-num-animate" data-countup="${kpi.avg_cost_daily}" data-format="money">$0.00</strong>
         </div>
       </div></article>
-      <article class="kpi-panel theme-blue"><div class="kpi-header"><h3 class="kpi-title">总请求数</h3><div class="kpi-icon-badge theme-blue">${icon('activity')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatInt(kpi.requests)}</strong><div class="kpi-sub-info"><span class="dot-success">成功: ${formatInt(kpi.successes)}</span><span class="dot-failed">失败: ${formatInt(kpi.failures)}</span><span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span></div><div class="sparkline-box" style="--card-theme:var(--blue)">${makeSparkline(trend, 'requests', '#326ff5', 'requests')}</div></article>
-      <article class="kpi-panel theme-purple"><div class="kpi-header"><h3 class="kpi-title">总 Token 消耗</h3><div class="kpi-icon-badge theme-purple">${icon('diamond')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatCompact(kpi.total_tokens)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span><span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--purple)">${makeSparkline(trend, 'tokens', '#7738ee', 'tokens')}</div></article>
+      <article class="kpi-panel theme-blue"><div class="kpi-header"><h3 class="kpi-title">总请求数</h3><div class="kpi-icon-badge theme-blue">${icon('activity')}</div></div><strong class="kpi-main-val kpi-num-animate" data-countup="${kpi.requests}" data-format="int">0</strong><div class="kpi-sub-info"><span class="dot-success">成功: ${formatInt(kpi.successes)}</span><span class="dot-failed">失败: ${formatInt(kpi.failures)}</span><span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span></div><div class="sparkline-box" style="--card-theme:var(--blue)">${makeSparkline(trend, 'requests', '#326ff5', 'requests')}</div></article>
+      <article class="kpi-panel theme-purple"><div class="kpi-header"><h3 class="kpi-title">总 Token 消耗</h3><div class="kpi-icon-badge theme-purple">${icon('diamond')}</div></div><strong class="kpi-main-val kpi-num-animate" data-countup="${kpi.total_tokens}" data-format="compact">0</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span><span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--purple)">${makeSparkline(trend, 'tokens', '#7738ee', 'tokens')}</div></article>
     </div><div class="kpi-row-bottom">
-      <article class="kpi-panel theme-green"><div class="kpi-header"><h3 class="kpi-title">RPM（每分钟请求）</h3><div class="kpi-icon-badge theme-green">${icon('clock')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatNumber(kpi.rpm, 2)}</strong><div class="kpi-sub-info"><span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span></div><div class="sparkline-box" style="--card-theme:var(--green)">${makeSparkline(trend, 'requests', '#20b95a', 'rpm')}</div></article>
-      <article class="kpi-panel theme-orange"><div class="kpi-header"><h3 class="kpi-title">TPM（每分钟 Token）</h3><div class="kpi-icon-badge theme-orange">${icon('trend-up')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatCompact(kpi.tpm)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--orange)">${makeSparkline(trend, 'tokens', '#ff7a12', 'tpm')}</div></article>
-      <article class="kpi-panel theme-teal"><div class="kpi-header"><h3 class="kpi-title">缓存命中率</h3><div class="kpi-icon-badge theme-teal">${icon('percent')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatPercent(kpi.cache_rate)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--teal)">${makeSparkline(trend, 'hit_rate', '#18ad9d', 'cache')}</div></article>
-      <article class="kpi-panel theme-yellow"><div class="kpi-header"><h3 class="kpi-title">总费用</h3><div class="kpi-icon-badge theme-yellow">${icon('dollar')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatMoney(kpi.cost_usd)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--yellow)">${makeSparkline(trend, 'actual_cost', '#dda918', 'cost')}</div></article>
+      <article class="kpi-panel theme-green"><div class="kpi-header"><h3 class="kpi-title">RPM（每分钟请求）</h3><div class="kpi-icon-badge theme-green">${icon('clock')}</div></div><strong class="kpi-main-val kpi-num-animate" data-countup="${kpi.rpm}" data-format="number">0.00</strong><div class="kpi-sub-info"><span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span></div><div class="sparkline-box" style="--card-theme:var(--green)">${makeSparkline(trend, 'requests', '#20b95a', 'rpm')}</div></article>
+      <article class="kpi-panel theme-orange"><div class="kpi-header"><h3 class="kpi-title">TPM（每分钟 Token）</h3><div class="kpi-icon-badge theme-orange">${icon('trend-up')}</div></div><strong class="kpi-main-val kpi-num-animate" data-countup="${kpi.tpm}" data-format="compact">0</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--orange)">${makeSparkline(trend, 'tokens', '#ff7a12', 'tpm')}</div></article>
+      <article class="kpi-panel theme-teal"><div class="kpi-header"><h3 class="kpi-title">缓存命中率</h3><div class="kpi-icon-badge theme-teal">${icon('percent')}</div></div><strong class="kpi-main-val kpi-num-animate" data-countup="${kpi.cache_rate}" data-format="percent">0.0%</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--teal)">${makeSparkline(trend, 'hit_rate', '#18ad9d', 'cache')}</div></article>
+      <article class="kpi-panel theme-yellow"><div class="kpi-header"><h3 class="kpi-title">总费用</h3><div class="kpi-icon-badge theme-yellow">${icon('dollar')}</div></div><strong class="kpi-main-val kpi-num-animate" data-countup="${kpi.cost_usd}" data-format="money">$0.00</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--yellow)">${makeSparkline(trend, 'actual_cost', '#dda918', 'cost')}</div></article>
     </div>`;
+    runCountUp($('#overview-kpis'));
   }
 
   function buildClampedSmoothPath(points, minY, maxY) {
@@ -803,7 +804,7 @@
       const calculatedLength = Number(item.requests || 0) / total * circumference;
       const length = index === top.length - 1 ? circumference - offset : calculatedLength;
       const color = COLORS[index % COLORS.length];
-      const segment = `<circle class="donut-segment" data-idx="${index}" data-name="${esc(item.name || '未识别')}" data-reqs="${formatInt(item.requests)}" data-pct="${percentage}%" data-color="${color}" cx="52" cy="52" r="38" stroke="${color}" stroke-dasharray="${length} ${circumference-length}" stroke-dashoffset="${-offset}"/>`;
+      const segment = `<circle class="donut-segment" data-idx="${index}" data-name="${esc(item.name || '未识别')}" data-reqs="${formatInt(item.requests)}" data-pct="${percentage}%" data-color="${color}" cx="52" cy="52" r="38" stroke="${color}" style="--final-dasharray: ${length} ${circumference-length}; stroke-dasharray: var(--final-dasharray);" stroke-dashoffset="${-offset}"/>`;
       offset += length;
       return segment;
     }).join('');
@@ -1042,8 +1043,9 @@
     $('#interface-summary').innerHTML = `
       <div class="interface-card theme-blue"><div class="ic-head"><span>客户端 Key 凭证</span><div class="ic-icon">${icon('key')}</div></div><strong class="ic-val">${formatInt(apiKeys.length)} <small>个活跃 Key</small></strong></div>
       <div class="interface-card theme-purple"><div class="ic-head"><span>上游通道集群</span><div class="ic-icon">${icon('database')}</div></div><strong class="ic-val">${formatInt(upstreams.length)} <small>个 Provider</small></strong></div>
-      <div class="interface-card theme-green"><div class="ic-head"><span>接口总请求量</span><div class="ic-icon">${icon('activity')}</div></div><strong class="ic-val">${formatCompact(requests)} <small>次</small></strong></div>
+      <div class="interface-card theme-green"><div class="ic-head"><span>接口总请求量</span><div class="ic-icon">${icon('activity')}</div></div><strong class="ic-val" data-countup="${requests}" data-format="compact">0 <small>次</small></strong></div>
       <div class="interface-card theme-orange"><div class="ic-head"><span>上游平均响应延迟</span><div class="ic-icon">${icon('clock')}</div></div><strong class="ic-val">${formatDuration(weightedLatency)} <small>${formatInt(healthy)} 个健康</small></strong></div>`;
+    runCountUp(host);
   }
 
   function renderAPIKeys(items) {
@@ -1332,6 +1334,31 @@
     item.textContent = message;
     $('#toast-region').appendChild(item);
     setTimeout(() => item.remove(), 3600);
+  }
+
+  function runCountUp(container = document) {
+    $$('[data-countup]', container).forEach((el) => {
+      const target = Number(el.dataset.countup);
+      if (isNaN(target)) return;
+      const formatType = el.dataset.format;
+      const duration = 1200;
+      const startTime = performance.now();
+      const step = (time) => {
+        let progress = (time - startTime) / duration;
+        if (progress > 1) progress = 1;
+        const ease = 1 - Math.pow(1 - progress, 4);
+        const current = target * ease;
+        if (formatType === 'compact') el.textContent = formatCompact(current);
+        else if (formatType === 'money') el.textContent = formatMoney(current);
+        else if (formatType === 'int') el.textContent = formatInt(current);
+        else if (formatType === 'percent') el.textContent = formatPercent(current);
+        else if (formatType === 'number') el.textContent = formatNumber(current, 2);
+        else el.textContent = current.toFixed(0);
+        if (progress < 1) requestAnimationFrame(step);
+        else el.removeAttribute('data-countup');
+      };
+      requestAnimationFrame(step);
+    });
   }
 
   function empty(element, label) { element.innerHTML = `<div class="empty-state" style="display:grid;place-items:center">${esc(label)}</div>`; }
