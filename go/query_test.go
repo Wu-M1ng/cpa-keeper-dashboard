@@ -82,10 +82,9 @@ func TestQuerySummaryUsesRollups(t *testing.T) {
 	if actualCost <= 0 || standardCost < actualCost {
 		t.Fatalf("trend costs actual=%f standard=%f", actualCost, standardCost)
 	}
-	localNow := now.In(chinaStandardTime)
-	wantStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, chinaStandardTime).
-		AddDate(0, 0, -4).UnixMilli()
-	wantEnd := wantStart + int64((5*24*4-1)*15*time.Minute/time.Millisecond)
+	intervalMS := int64(15 * 60 * 1000)
+	wantEnd := (now.UnixMilli() / intervalMS) * intervalMS
+	wantStart := wantEnd - int64(5*24*4-1)*intervalMS
 	if result.Health[0].TimestampMS != wantStart || result.Health[len(result.Health)-1].TimestampMS != wantEnd {
 		t.Fatalf("health range = %d..%d, want %d..%d", result.Health[0].TimestampMS, result.Health[len(result.Health)-1].TimestampMS, wantStart, wantEnd)
 	}
@@ -98,14 +97,14 @@ func TestQuerySummaryUsesRollups(t *testing.T) {
 	}
 }
 
-func TestHealthRangeUsesChinaCalendarDays(t *testing.T) {
-	now := time.Date(2026, 8, 6, 17, 30, 0, 0, time.UTC)
+func TestHealthRangeRollingFiveDays(t *testing.T) {
+	now := time.Date(2026, 8, 26, 11, 30, 0, 0, time.UTC)
 	rng := chinaHealthRange(now)
-	wantStart := time.Date(2026, 8, 3, 0, 0, 0, 0, chinaStandardTime).UnixMilli()
-	wantEnd := time.Date(2026, 8, 7, 23, 59, 59, int(time.Second-time.Millisecond), chinaStandardTime).UnixMilli()
-	if rng.FromMS != wantStart || rng.ToMS != wantEnd {
-		t.Fatalf("health range = %s..%s, want China calendar range %s..%s",
-			time.UnixMilli(rng.FromMS), time.UnixMilli(rng.ToMS), time.UnixMilli(wantStart), time.UnixMilli(wantEnd))
+	intervalMS := int64(15 * 60 * 1000)
+	wantEnd := (now.UnixMilli() / intervalMS) * intervalMS
+	wantStart := wantEnd - int64(5*24*4-1)*intervalMS
+	if rng.FromMS != wantStart || rng.ToMS != wantEnd+intervalMS-1 {
+		t.Fatalf("health range = %d..%d, want rolling %d..%d", rng.FromMS, rng.ToMS, wantStart, wantEnd+intervalMS-1)
 	}
 }
 

@@ -208,12 +208,13 @@ func parseTimeValue(value string) (time.Time, error) {
 }
 
 func chinaHealthRange(now time.Time) timeRange {
-	localNow := now.In(chinaStandardTime)
-	today := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, chinaStandardTime)
-	start := today.AddDate(0, 0, -4)
+	intervalMS := int64(15 * 60 * 1000)
+	totalSlots := int64(5 * 24 * 4) // 480 slots (120 hours)
+	endBucket := (now.UnixMilli() / intervalMS) * intervalMS
+	startBucket := endBucket - (totalSlots-1)*intervalMS
 	return timeRange{
-		FromMS:          start.UnixMilli(),
-		ToMS:            today.AddDate(0, 0, 1).Add(-time.Millisecond).UnixMilli(),
+		FromMS:          startBucket,
+		ToMS:            endBucket + intervalMS - 1,
 		Label:           "5d",
 		IntervalMinutes: 15,
 	}

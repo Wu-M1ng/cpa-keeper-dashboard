@@ -83,10 +83,13 @@
             <section class="panel health-panel" data-region="health">
               <div class="panel-head health-panel-head">
                 <div><h2>服务健康监测</h2><p>最近5天，15分钟一个网格；绿色代表成功率高，红色代表失败较多。</p></div>
-                <div class="health-summary" aria-label="服务健康汇总">
-                  <span class="health-stat-pill is-rate">成功率 <strong id="health-summary">--</strong></span>
-                  <span class="health-stat-pill is-success"><span class="hsi-dot"></span>成功 <strong id="health-success-count">0</strong></span>
-                  <span class="health-stat-pill is-failure"><span class="hsi-dot"></span>失败 <strong id="health-failure-count">0</strong></span>
+                <div class="health-summary-card" aria-label="服务健康汇总">
+                  <span class="hsc-label">成功率</span>
+                  <strong id="health-summary" class="hsc-rate">--</strong>
+                  <div class="hsc-sub">
+                    <span class="hsc-stat is-success"><i class="hsc-dot"></i><strong id="health-success-count">0</strong></span>
+                    <span class="hsc-stat is-failure"><i class="hsc-dot"></i><strong id="health-failure-count">0</strong></span>
+                  </div>
                 </div>
               </div>
               <div id="health-grid" class="health-grid" aria-label="最近5天服务健康网格"></div>
@@ -95,7 +98,7 @@
           </div>
           <div class="overview-section" data-region="analysis">
             <div class="distribution-grid" id="distribution-grid" data-region="distributions"></div>
-            <section class="panel token-panel" data-region="tokens"><div class="panel-head"><div><h2>Token 构成</h2><p>输入、输出、缓存与推理消耗</p></div><strong id="token-total">0</strong></div><div id="token-composition"></div></section>
+            <section class="panel token-panel" data-region="tokens"><div class="panel-head"><div><h2>Token 构成</h2><p>输入、输出与缓存的 Token 占比及模型单价换算费用。</p></div><strong id="token-total" class="sr-only">0</strong></div><div id="token-composition"></div></section>
             <section class="table-section" data-region="model-statistics">
               <div class="section-head"><div><h2>模型统计</h2><p>请求质量、消耗与成本</p></div></div>
               <div class="table-wrap"><table class="model-table"><caption class="sr-only">模型统计</caption><thead><tr><th scope="col">模型</th><th scope="col">请求</th><th scope="col">成功率</th><th scope="col">缓存命中率</th><th scope="col">Token</th><th scope="col">平均延迟</th><th scope="col">费用</th></tr></thead><tbody id="model-table"></tbody></table></div>

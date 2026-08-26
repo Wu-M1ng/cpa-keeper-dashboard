@@ -494,13 +494,36 @@
     const values = raw.length ? raw : [0, 0, 0, 0, 0, 0, 0, 0];
     const width = 240, height = 36;
     const min = Math.min(...values), max = Math.max(...values);
-    const path = values.map((value, index) => {
-      const x = index * width / (values.length - 1);
-      const y = height - 2 - (value - min) / (max - min || 1) * (height - 8);
-      return `${index ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
-    }).join(' ');
+    const range = max - min || 1;
+    const points = values.map((value, index) => {
+      const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width;
+      const y = height - 4 - ((value - min) / range) * (height - 10);
+      return { x, y };
+    });
+    const path = buildClampedSmoothPath(points, 3, height - 3);
     const gradient = `spark-gradient-${id}`;
-    return `<svg class="sparkline-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${gradient}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity=".18"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><path d="${path} L ${width} ${height} L 0 ${height} Z" fill="url(#${gradient})" stroke="none"/><path d="${path}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    return `<svg class="sparkline-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${gradient}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity=".26"/><stop offset="100%" stop-color="${color}" stop-opacity="0.02"/></linearGradient></defs><path d="${path} L ${width} ${height} L 0 ${height} Z" fill="url(#${gradient})" stroke="none"/><path d="${path}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  function animateNumber(el, target, formatter, duration = 450) {
+    if (!el) return;
+    const end = Number(target || 0);
+    const prev = el.dataset.prevVal !== undefined ? Number(el.dataset.prevVal) : 0;
+    el.dataset.prevVal = String(end);
+    if (isNaN(end) || Math.abs(end - prev) < 0.000001) {
+      el.textContent = formatter(end);
+      return;
+    }
+    const startTime = performance.now();
+    function tick(now) {
+      const p = Math.min(1, (now - startTime) / duration);
+      const ease = 1 - Math.pow(1 - p, 3);
+      const current = prev + (end - prev) * ease;
+      el.textContent = formatter(current);
+      if (p < 1) requestAnimationFrame(tick);
+      else el.textContent = formatter(end);
+    }
+    requestAnimationFrame(tick);
   }
 
   function renderKPIs(kpi, trend) {
@@ -511,27 +534,37 @@
         <div class="kpi-daily-item" style="--metric-accent: var(--blue);">
           <span class="kpi-di-icon">${icon('activity')}</span>
           <span class="kpi-di-copy"><span class="kpi-di-label">日均请求</span></span>
-          <strong class="kpi-di-val kpi-num-animate">${formatCompact(kpi.avg_requests_daily)}</strong>
+          <strong class="kpi-di-val kpi-num-animate" id="kpi-val-daily-req">${formatCompact(kpi.avg_requests_daily)}</strong>
         </div>
         <div class="kpi-daily-item" style="--metric-accent: var(--purple);">
           <span class="kpi-di-icon">${icon('diamond')}</span>
           <span class="kpi-di-copy"><span class="kpi-di-label">日均 Token</span></span>
-          <strong class="kpi-di-val kpi-num-animate">${formatCompact(kpi.avg_tokens_daily)}</strong>
+          <strong class="kpi-di-val kpi-num-animate" id="kpi-val-daily-tok">${formatCompact(kpi.avg_tokens_daily)}</strong>
         </div>
         <div class="kpi-daily-item" style="--metric-accent: var(--yellow);">
           <span class="kpi-di-icon">${icon('dollar')}</span>
           <span class="kpi-di-copy"><span class="kpi-di-label">日均费用</span></span>
-          <strong class="kpi-di-val kpi-num-animate">${formatMoney(kpi.avg_cost_daily)}</strong>
+          <strong class="kpi-di-val kpi-num-animate" id="kpi-val-daily-cost">${formatMoney(kpi.avg_cost_daily)}</strong>
         </div>
       </div></article>
-      <article class="kpi-panel theme-blue"><div class="kpi-header"><h3 class="kpi-title">总请求数</h3><div class="kpi-icon-badge theme-blue">${icon('activity')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatInt(kpi.requests)}</strong><div class="kpi-sub-info"><span class="dot-success">成功: ${formatInt(kpi.successes)}</span><span class="dot-failed">失败: ${formatInt(kpi.failures)}</span><span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span></div><div class="sparkline-box" style="--card-theme:var(--blue)">${makeSparkline(trend, 'requests', '#326ff5', 'requests')}</div></article>
-      <article class="kpi-panel theme-purple"><div class="kpi-header"><h3 class="kpi-title">总 Token 消耗</h3><div class="kpi-icon-badge theme-purple">${icon('diamond')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatCompact(kpi.total_tokens)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span><span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--purple)">${makeSparkline(trend, 'tokens', '#7738ee', 'tokens')}</div></article>
+      <article class="kpi-panel theme-blue"><div class="kpi-header"><h3 class="kpi-title">总请求数</h3><div class="kpi-icon-badge theme-blue">${icon('activity')}</div></div><strong class="kpi-main-val kpi-num-animate" id="kpi-val-req">${formatInt(kpi.requests)}</strong><div class="kpi-sub-info"><span class="dot-success">成功: ${formatInt(kpi.successes)}</span><span class="dot-failed">失败: ${formatInt(kpi.failures)}</span><span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span></div><div class="sparkline-box" style="--card-theme:var(--blue)">${makeSparkline(trend, 'requests', '#326ff5', 'requests')}</div></article>
+      <article class="kpi-panel theme-purple"><div class="kpi-header"><h3 class="kpi-title">总 Token 消耗</h3><div class="kpi-icon-badge theme-purple">${icon('diamond')}</div></div><strong class="kpi-main-val kpi-num-animate" id="kpi-val-tok">${formatCompact(kpi.total_tokens)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span><span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--purple)">${makeSparkline(trend, 'tokens', '#a98bff', 'tokens')}</div></article>
     </div><div class="kpi-row-bottom">
-      <article class="kpi-panel theme-green"><div class="kpi-header"><h3 class="kpi-title">RPM（每分钟请求）</h3><div class="kpi-icon-badge theme-green">${icon('clock')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatNumber(kpi.rpm, 2)}</strong><div class="kpi-sub-info"><span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span></div><div class="sparkline-box" style="--card-theme:var(--green)">${makeSparkline(trend, 'requests', '#20b95a', 'rpm')}</div></article>
-      <article class="kpi-panel theme-orange"><div class="kpi-header"><h3 class="kpi-title">TPM（每分钟 Token）</h3><div class="kpi-icon-badge theme-orange">${icon('trend-up')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatCompact(kpi.tpm)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--orange)">${makeSparkline(trend, 'tokens', '#ff7a12', 'tpm')}</div></article>
-      <article class="kpi-panel theme-teal"><div class="kpi-header"><h3 class="kpi-title">缓存命中率</h3><div class="kpi-icon-badge theme-teal">${icon('percent')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatPercent(kpi.cache_rate)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--teal)">${makeSparkline(trend, 'hit_rate', '#18ad9d', 'cache')}</div></article>
-      <article class="kpi-panel theme-yellow"><div class="kpi-header"><h3 class="kpi-title">总费用</h3><div class="kpi-icon-badge theme-yellow">${icon('dollar')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatMoney(kpi.cost_usd)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--yellow)">${makeSparkline(trend, 'actual_cost', '#dda918', 'cost')}</div></article>
+      <article class="kpi-panel theme-green"><div class="kpi-header"><h3 class="kpi-title">RPM</h3><div class="kpi-icon-badge theme-green">${icon('clock')}</div></div><strong class="kpi-main-val kpi-num-animate" id="kpi-val-rpm">${formatNumber(kpi.rpm, 2)}</strong><div class="kpi-sub-info"><span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span></div><div class="sparkline-box" style="--card-theme:var(--green)">${makeSparkline(trend, 'requests', '#42d982', 'rpm')}</div></article>
+      <article class="kpi-panel theme-orange"><div class="kpi-header"><h3 class="kpi-title">TPM</h3><div class="kpi-icon-badge theme-orange">${icon('trend-up')}</div></div><strong class="kpi-main-val kpi-num-animate" id="kpi-val-tpm">${formatCompact(kpi.tpm)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--orange)">${makeSparkline(trend, 'tokens', '#ff7a12', 'tpm')}</div></article>
+      <article class="kpi-panel theme-teal"><div class="kpi-header"><h3 class="kpi-title">缓存命中率</h3><div class="kpi-icon-badge theme-teal">${icon('percent')}</div></div><strong class="kpi-main-val kpi-num-animate" id="kpi-val-cache">${formatPercent(kpi.cache_rate)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--teal)">${makeSparkline(trend, 'hit_rate', '#18ad9d', 'cache')}</div></article>
+      <article class="kpi-panel theme-yellow"><div class="kpi-header"><h3 class="kpi-title">总费用</h3><div class="kpi-icon-badge theme-yellow">${icon('dollar')}</div></div><strong class="kpi-main-val kpi-num-animate" id="kpi-val-cost">${formatMoney(kpi.cost_usd)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--yellow)">${makeSparkline(trend, 'actual_cost', '#ffb35c', 'cost')}</div></article>
     </div>`;
+
+    animateNumber($('#kpi-val-daily-req'), kpi.avg_requests_daily, formatCompact);
+    animateNumber($('#kpi-val-daily-tok'), kpi.avg_tokens_daily, formatCompact);
+    animateNumber($('#kpi-val-daily-cost'), kpi.avg_cost_daily, formatMoney);
+    animateNumber($('#kpi-val-req'), kpi.requests, formatInt);
+    animateNumber($('#kpi-val-tok'), kpi.total_tokens, formatCompact);
+    animateNumber($('#kpi-val-rpm'), kpi.rpm, (v) => formatNumber(v, 2));
+    animateNumber($('#kpi-val-tpm'), kpi.tpm, formatCompact);
+    animateNumber($('#kpi-val-cache'), kpi.cache_rate, formatPercent);
+    animateNumber($('#kpi-val-cost'), kpi.cost_usd, formatMoney);
   }
 
   function buildClampedSmoothPath(points, minY, maxY) {
@@ -693,28 +726,35 @@
       requests: Number(point.requests || 0),
       failures: Number(point.failures || 0),
     })).filter((point) => point.timestamp_ms > 0).sort((leftPoint, rightPoint) => leftPoint.timestamp_ms - rightPoint.timestamp_ms);
+    const totalSlots = HEALTH_DAYS * HEALTH_SLOTS_PER_DAY;
     const latestTimestamp = normalized.at(-1)?.timestamp_ms || 0;
-    const dayMilliseconds = 24 * 60 * 60 * 1000;
-    const chinaOffsetMilliseconds = 8 * 60 * 60 * 1000;
-    const latestDayStart = latestTimestamp
-      ? Math.floor((latestTimestamp + chinaOffsetMilliseconds) / dayMilliseconds) * dayMilliseconds - chinaOffsetMilliseconds
-      : 0;
-    const firstSlot = latestDayStart - (HEALTH_DAYS - 1) * dayMilliseconds;
+    const endSlot = latestTimestamp
+      ? Math.floor(latestTimestamp / slotMilliseconds) * slotMilliseconds
+      : Math.floor(Date.now() / slotMilliseconds) * slotMilliseconds;
+    const firstSlot = endSlot - (totalSlots - 1) * slotMilliseconds;
     const pointsBySlot = new Map(normalized.map((point) => [Math.floor(point.timestamp_ms / slotMilliseconds) * slotMilliseconds, point]));
-    const visible = latestTimestamp ? Array.from({ length: HEALTH_DAYS * HEALTH_SLOTS_PER_DAY }, (_, index) => {
+    const visible = (latestTimestamp || normalized.length) ? Array.from({ length: totalSlots }, (_, index) => {
       const timestamp = firstSlot + index * slotMilliseconds;
       return pointsBySlot.get(timestamp) || { timestamp_ms: timestamp, requests: 0, failures: 0 };
     }) : [];
     const requests = visible.reduce((sum, point) => sum + Number(point.requests || 0), 0);
-    const failures = visible.reduce((sum, point) => sum + Number(point.failures || 0), 0);
-    const successes = Math.max(0, requests - failures);
-    $('#health-summary').textContent = requests ? formatPercent(successes / requests) : '--';
+    const rateEl = $('#health-summary');
+    const rate = requests ? successes / requests : null;
+    rateEl.textContent = rate !== null ? formatPercent(rate) : '--';
+    if (rate !== null) {
+      if (rate >= 0.98) rateEl.style.color = 'var(--green)';
+      else if (rate >= 0.90) rateEl.style.color = 'var(--yellow)';
+      else rateEl.style.color = 'var(--red)';
+    } else {
+      rateEl.style.color = 'var(--muted)';
+    }
     $('#health-success-count').textContent = formatInt(successes);
     $('#health-failure-count').textContent = formatInt(failures);
     if (!visible.length) return empty(host, '暂无健康数据');
 
-    const SLOTS_PER_ROW = 48;
-    const TOTAL_ROWS = HEALTH_DAYS * 2;
+    const SLOTS_PER_ROW = 24;
+    const ROWS_PER_DAY = 4;
+    const TOTAL_ROWS = HEALTH_DAYS * ROWS_PER_DAY;
     let rows = $$('.health-row', host);
     let cells = $$('.health-cell', host);
     if (rows.length !== TOTAL_ROWS || cells.length !== HEALTH_DAYS * HEALTH_SLOTS_PER_DAY) {
@@ -722,7 +762,7 @@
       for (let dayIndex = 0; dayIndex < HEALTH_DAYS; dayIndex += 1) {
         const dayGroup = document.createElement('div');
         dayGroup.className = 'health-day-group';
-        for (let r = 0; r < 2; r += 1) {
+        for (let r = 0; r < ROWS_PER_DAY; r += 1) {
           const row = document.createElement('div');
           row.className = 'health-row';
           for (let slot = 0; slot < SLOTS_PER_ROW; slot += 1) {
@@ -798,7 +838,7 @@
 
   function renderAnalysis(data) {
     renderDistributions(data.distributions || {});
-    renderTokenComposition(data.tokens || {});
+    renderTokenComposition(data.tokens || {}, data.models || []);
     renderModelTable(data.models || []);
   }
 
@@ -836,30 +876,76 @@
     return `<article class="distribution-card theme-${key || 'models'}"><h2>${title}</h2><div class="donut-layout"><div class="donut-wrapper"><svg class="donut" viewBox="0 0 104 104" aria-hidden="true"><circle class="donut-track" cx="52" cy="52" r="38"/>${segments}</svg><div class="donut-center-text"><span class="dct-name">占比率</span><span class="dct-val">TOP 5</span></div></div><div class="distribution-list">${list}</div></div></article>`;
   }
 
-  function renderTokenComposition(tokens) {
+  function renderTokenComposition(tokens, models = []) {
     const regularInput = Math.max(0, (tokens.input || 0) - (tokens.cache_read || 0) - (tokens.cache_write || 0));
     const regularOutput = Math.max(0, (tokens.output || 0) - (tokens.reasoning || 0));
+    const cacheRead = tokens.cache_read || 0;
+    const cacheWrite = tokens.cache_write || 0;
+    const reasoning = tokens.reasoning || 0;
+    const totalTokens = tokens.total || (regularInput + regularOutput + cacheRead + cacheWrite + reasoning) || 0;
+    const totalCost = (models || []).reduce((sum, m) => sum + Number(m.cost_usd || 0), 0) || state.summary?.kpi?.cost_usd || 0;
+    const sumTokens = (regularInput + regularOutput + cacheRead + cacheWrite + reasoning) || totalTokens || 1;
+    const costPerMillion = totalTokens > 0 ? (totalCost / totalTokens * 1000000) : 0;
+
     const parts = [
-      ['输入', regularInput, '#326ff5', '0'],
-      ['输出', regularOutput, '#20b95a', '1'],
-      ['缓存读取', tokens.cache_read || 0, '#7738ee', '2'],
-      ['缓存写入', tokens.cache_write || 0, '#ff7a12', '3'],
-      ['推理', tokens.reasoning || 0, '#e44e3f', '4'],
+      { key: 'input', label: 'Input', tokens: regularInput, color: '#326ff5' },
+      { key: 'cache_read', label: 'Cache Read', tokens: cacheRead, color: '#ff7a12' },
+      { key: 'cache_write', label: 'Cache Write', tokens: cacheWrite, color: '#e44e3f' },
+      { key: 'output', label: 'Output', tokens: regularOutput, color: '#20b95a' },
     ];
-    const sum = parts.reduce((total, [, value]) => total + value, 0) || 1;
-    $('#token-total').textContent = formatCompact(tokens.total || 0);
+    if (reasoning > 0) {
+      parts.push({ key: 'reasoning', label: 'Reasoning', tokens: reasoning, color: '#a98bff' });
+    }
 
-    const stackItems = parts.map(([label, value, color, idx]) => {
-      const pct = (value / sum * 100).toFixed(1);
-      return `<span class="token-stack-segment" data-idx="${idx}" data-name="${label}" data-val="${formatInt(value)}" data-compact="${formatCompact(value)}" data-pct="${pct}%" data-color="${color}" tabindex="0" role="button" aria-label="${label} Token ${formatTokenCompact(value)}" style="width:${pct}%;background:${color}"></span>`;
+    parts.forEach((p, idx) => {
+      p.idx = String(idx);
+      p.pctNum = (p.tokens / sumTokens * 100);
+      p.pct = p.pctNum.toFixed(2) + '%';
+      p.cost = totalCost * (p.tokens / sumTokens);
+    });
+
+    const stackSegments = parts.map((part) => {
+      if (part.pctNum <= 0) return '';
+      const showText = part.pctNum >= 5;
+      return `<div class="token-stack-segment" data-idx="${part.idx}" data-name="${part.label}" data-val="${formatInt(part.tokens)}" data-cost="${formatMoney(part.cost)}" data-compact="${formatCompact(part.tokens)}" data-pct="${part.pct}" data-color="${part.color}" tabindex="0" role="button" aria-label="${part.label} ${part.pct}" style="width:${part.pctNum.toFixed(3)}%;background:${part.color};">
+        ${showText ? `<span class="tss-pct-text">${part.pct}</span>` : ''}
+      </div>`;
     }).join('');
 
-    const legendItems = parts.map(([label, value, color, idx]) => {
-      const pct = (value / sum * 100).toFixed(1);
-      return `<div class="token-legend-item" data-idx="${idx}" data-name="${label}" data-val="${formatInt(value)}" data-compact="${formatCompact(value)}" data-pct="${pct}%" data-color="${color}" tabindex="0" role="button" aria-label="${label} Token ${formatTokenCompact(value)}" style="border-color:${color}"><span>${label}</span><strong>${formatCompact(value)}</strong></div>`;
-    }).join('');
+    const summaryStrip = `<div class="token-summary-strip">
+      <div class="tss-col">
+        <span class="tss-label">TOTAL TOKENS</span>
+        <strong class="tss-val" id="token-total">${formatCompact(totalTokens)}</strong>
+      </div>
+      <div class="tss-col">
+        <span class="tss-label">TOTAL COST</span>
+        <strong class="tss-val">${formatMoney(totalCost)}</strong>
+      </div>
+      <div class="tss-col">
+        <span class="tss-label">COST / 1M TOKENS</span>
+        <strong class="tss-val">$${costPerMillion.toFixed(4)}</strong>
+        <span class="tss-badge">BLENDED RATE</span>
+      </div>
+    </div>`;
 
-    $('#token-composition').innerHTML = `<div class="token-stack">${stackItems}</div><div class="token-legend">${legendItems}</div>`;
+    const breakdownCards = `<div class="token-breakdown-grid" style="grid-template-columns: repeat(${parts.length}, minmax(0, 1fr));">
+      ${parts.map((part) => `
+        <div class="token-breakdown-card" data-idx="${part.idx}" data-name="${part.label}" data-val="${formatInt(part.tokens)}" data-cost="${formatMoney(part.cost)}" data-compact="${formatCompact(part.tokens)}" data-pct="${part.pct}" data-color="${part.color}" tabindex="0" role="button" aria-label="${part.label} ${formatMoney(part.cost)}">
+          <div class="tbc-head">
+            <i class="tbc-dot" style="background:${part.color}"></i>
+            <span class="tbc-title">${part.label}</span>
+          </div>
+          <strong class="tbc-cost">${formatMoney(part.cost)}</strong>
+          <span class="tbc-pct">${part.pct}</span>
+        </div>
+      `).join('')}
+    </div>`;
+
+    $('#token-composition').innerHTML = `
+      <div class="token-stack">${stackSegments}</div>
+      ${summaryStrip}
+      ${breakdownCards}
+    `;
   }
 
   function hitRateBadge(rate) {
@@ -955,15 +1041,16 @@
 
     if (container) {
       container.addEventListener('mouseover', (event) => {
-        const item = event.target.closest('.token-stack-segment, .token-legend-item');
+        const item = event.target.closest('.token-stack-segment, .token-breakdown-card');
         if (!item || pinnedTrigger) return;
-        const { idx, name, val, compact, pct, color } = item.dataset;
+        const { idx, name, val, compact, pct, color, cost } = item.dataset;
         container.classList.add('has-hover');
-        container.querySelectorAll('.token-stack-segment, .token-legend-item').forEach((el) => {
+        container.querySelectorAll('.token-stack-segment, .token-breakdown-card').forEach((el) => {
           el.classList.toggle('is-active', el.dataset.idx === idx);
         });
-        tooltip.innerHTML = `<div class="fgt-title" style="color:${color}">${esc(name)} Token</div>
-          <div class="fgt-row"><span>用量占比</span><strong>${esc(pct)}</strong></div>
+        tooltip.innerHTML = `<div class="fgt-title" style="color:${color}">${esc(name)}</div>
+          <div class="fgt-row"><span>占比率</span><strong>${esc(pct)}</strong></div>
+          <div class="fgt-row"><span>折算费用</span><strong>${esc(cost || '$0.00')}</strong></div>
           <div class="fgt-row"><span>Token 消耗</span><strong>${esc(val)} (${esc(compact)})</strong></div>`;
         tooltip.classList.add('is-visible');
       });
@@ -973,7 +1060,7 @@
       container.addEventListener('mouseout', (event) => {
         if (pinnedTrigger || container.contains(event.relatedTarget)) return;
         container.classList.remove('has-hover');
-        container.querySelectorAll('.token-stack-segment, .token-legend-item').forEach((el) => el.classList.remove('is-active'));
+        container.querySelectorAll('.token-stack-segment, .token-breakdown-card').forEach((el) => el.classList.remove('is-active'));
         tooltip.classList.remove('is-visible');
       });
     }
