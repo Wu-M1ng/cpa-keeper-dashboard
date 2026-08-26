@@ -590,7 +590,7 @@
 
   function renderTrend(rawPoints) {
     const host = $('#trend-chart');
-    const normalizedPoints = rawPoints.map((point) => ({
+    const normalizedPoints = (rawPoints || []).map((point) => ({
       ...point,
       timestamp_ms: Number(point.timestamp_ms || 0),
       requests: Number(point.requests || 0),
@@ -601,11 +601,16 @@
       hit_rate: Number(point.hit_rate || 0), actual_cost: Number(point.actual_cost || point.cost_usd || 0),
       standard_cost: Number(point.standard_cost || 0),
     })).sort((leftPoint, rightPoint) => leftPoint.timestamp_ms - rightPoint.timestamp_ms);
-    const points = normalizedPoints.filter((point) => point.requests > 0 || point.tokens > 0 ||
-      point.input > 0 || point.output > 0 || point.cache_write > 0 || point.cache_read > 0 ||
-      point.reasoning > 0 || point.actual_cost > 0 || point.standard_cost > 0);
-    state.lastTrendPoints = points;
-    if (!points.length) return empty(host, '当前范围没有用量');
+
+    state.lastTrendPoints = normalizedPoints;
+    const hasAnyUsage = normalizedPoints.some((point) =>
+      point.requests > 0 || point.tokens > 0 || point.input > 0 || point.output > 0 ||
+      point.cache_write > 0 || point.cache_read > 0 || point.reasoning > 0 ||
+      point.actual_cost > 0 || point.standard_cost > 0
+    );
+    if (!normalizedPoints.length || !hasAnyUsage) return empty(host, '当前范围没有用量');
+
+    const points = normalizedPoints;
 
     const dimensions = [
       { key: 'input', label: '输入', color: '#2f6bf2', axis: 'token', strokeWidth: 3 },
@@ -621,13 +626,8 @@
       return empty(host, '已取消所有指标，点击上方图例恢复');
     }
 
-    const styles = getComputedStyle(host);
-    const horizontalPadding = parseFloat(styles.paddingLeft || '0') + parseFloat(styles.paddingRight || '0');
-    const verticalPadding = parseFloat(styles.paddingTop || '0') + parseFloat(styles.paddingBottom || '0');
-    const width = Math.max(520, Math.round(host.clientWidth - horizontalPadding));
-    const hostAvailableHeight = Math.round(host.clientHeight - verticalPadding);
-    const height = Math.max(410, hostAvailableHeight || 410);
-    const left = 65, right = 55, top = 25, bottom = 45;
+    const width = 840, height = 380;
+    const left = 68, right = 55, top = 25, bottom = 45;
     const plotWidth = width - left - right, plotHeight = height - top - bottom, zeroY = top + plotHeight;
 
     const tokenKeys = dimensions.filter((dim) => dim.axis === 'token' && active[dim.key]).map((dim) => dim.key);
@@ -663,7 +663,10 @@
       if (dimension.area && pathPoints.length > 1) {
         areaPaths += `<path d="${path} L ${pathPoints.at(-1).x} ${zeroY - 1} L ${pathPoints[0].x} ${zeroY - 1} Z" fill="url(#area-gradient-cache)" stroke="none" class="animated-area"/>`;
       }
-      linePaths += `<path d="${path}" fill="none" stroke="${dimension.color}" stroke-width="${dimension.strokeWidth || 3}" ${dimension.dashed ? 'stroke-dasharray="6 5"' : ''} stroke-linecap="round" stroke-linejoin="round" class="animated-line"/>`;
+      const isDashed = Boolean(dimension.dashed);
+      const dashAttr = isDashed ? 'stroke-dasharray="6 5"' : '';
+      const lineClass = isDashed ? 'animated-line is-dashed' : 'animated-line';
+      linePaths += `<path d="${path}" fill="none" stroke="${dimension.color}" stroke-width="${dimension.strokeWidth || 3}" ${dashAttr} class="${lineClass}" stroke-linecap="round" stroke-linejoin="round"/>`;
       if (points.length <= 60) {
         pathPoints.forEach((pt) => {
           pointDots += `<circle cx="${pt.x}" cy="${pt.y}" r="4.2" fill="var(--surface)" stroke="${dimension.color}" stroke-width="2.2" class="trend-point-dot"/>`;
@@ -672,9 +675,6 @@
     });
 
     const defs = `<defs>
-      <clipPath id="chart-reveal-clip">
-        <rect x="0" y="0" width="${width}" height="${height}" class="chart-clip-rect"/>
-      </clipPath>
       <linearGradient id="area-gradient-cache" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="#00bcd4" stop-opacity=".32"/>
         <stop offset="65%" stop-color="#00bcd4" stop-opacity=".08"/>
@@ -682,7 +682,7 @@
       </linearGradient>
     </defs>`;
 
-    host.innerHTML = `<svg class="trend-svg-large" viewBox="0 0 ${width} ${height}" id="trend-svg-element" role="img" aria-label="输入、输出、缓存和缓存命中率趋势">${defs}${vGridLines}${leftGrid}${rightGrid}<g clip-path="url(#chart-reveal-clip)">${areaPaths}${linePaths}${pointDots}</g>${xLabels}<line id="crosshair-line" class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${zeroY}" hidden/><g id="active-dots-group"></g></svg><div id="trend-tooltip" class="trend-tooltip-popup" hidden></div>`;
+    host.innerHTML = `<svg class="trend-svg-large" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" id="trend-svg-element" role="img" aria-label="输入、输出、缓存和缓存命中率趋势">${defs}${vGridLines}${leftGrid}${rightGrid}<g>${areaPaths}${linePaths}${pointDots}</g>${xLabels}<line id="crosshair-line" class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${zeroY}" hidden/><g id="active-dots-group"></g></svg><div id="trend-tooltip" class="trend-tooltip-popup" hidden></div>`;
     const svg = $('#trend-svg-element'), crosshair = $('#crosshair-line'), dots = $('#active-dots-group'), tooltip = $('#trend-tooltip');
     let hoverFrame = 0;
     let lastPointer = null;
@@ -1271,7 +1271,7 @@
         segs,
         activeTotal,
       };
-    }).filter((item) => item.activeTotal > 0 || item.requests > 0).sort((a, b) => b.activeTotal - a.activeTotal);
+    }).filter((item) => item.activeTotal > 0).sort((a, b) => b.activeTotal - a.activeTotal);
 
     if (!items.length) {
       return empty(host, '当前选中的 Token 维度在各 Provider 均无消耗');
