@@ -32,7 +32,7 @@ Linux/macOS 将输出文件名改为 `usage-keeper.so` 或 `usage-keeper.dylib`�
 也可以使用：
 
 ```powershell
-.\scripts\build.ps1 -Version 1.2.1
+.\scripts\build.ps1 -Version 1.2.2
 ```
 
 ## 安装
@@ -88,6 +88,14 @@ GET /v0/resource/plugins/usage-keeper/dashboard
 | 接口 | API Key 统计、上游统计、Provider/Auth 上游详情 |
 | 设置 | 模型价格、SQLite/WAL/队列状态、JSON 备份与恢复 |
 
+## Dashboard 呈现契约
+
+- 顶部导航固定为“总览 / 接口 / 设置”；分析与事件继续合并在总览页，所有现有 ID、筛选、分页、导出和详情抽屉保持可用。
+- 总览按“指标带 -> 运行脉搏 -> 分析构成 -> 请求明细”分层呈现。趋势图仅绘制已加载的有用量点，横坐标按真实时间戳定位，悬停使用参考线和单帧更新。
+- 分布图的百分比以当前范围全量请求为分母，Top 5 之外聚合为“其他”，避免把 Top 5 误报为全量占比；Token 和表格数值统一使用 K/M，完整数值保留在 title/Tooltip 中。
+- 页面只读取 CPA 宿主的 `data-theme` / `data-cpa-theme`，不写入插件主题偏好。页面隐藏时停止刷新，页面可见且前端缓存过期后才按 `summary -> analysis -> events` 分阶段请求。
+- CSS 为嵌入式单文件，不加载外部字体、图表库或图片；移动端请求明细使用 `data-label` 网格布局，避免页面级横向滚动。
+
 ## 低负载策略
 
 `usage.handle` 的路径如下：
@@ -106,16 +114,16 @@ Dashboard 仅在页面可见且 60 秒前端缓存失效时刷新。聚合 Manag
 ## 发布
 
 ```powershell
-.\scripts\build.ps1 -Version 1.2.1 -GoOS windows -GoArch amd64
+.\scripts\build.ps1 -Version 1.2.2 -GoOS windows -GoArch amd64
 ```
 
 推送语义化版本标签后，GitHub Actions 会自动构建 Windows/Linux/macOS 动态库，打包 zip，生成统一的 `checksums.txt`，并创建 GitHub Release：
 
 ```powershell
-git tag v1.2.1
-git push origin v1.2.1
+git tag v1.2.2
+git push origin v1.2.2
 ```
 
-也可在 GitHub Actions 手动运行 `release` 工作流并输入版本标签，例如 `v1.2.1`。工作流会检查远端 tag：不存在时在当前提交创建并推送，存在时直接复用；对应 GitHub Release 已存在时会更新同名发布资产。
+也可在 GitHub Actions 手动运行 `release` 工作流并输入版本标签，例如 `v1.2.2`。工作流会检查远端 tag：不存在时在当前提交创建并推送，存在时直接复用；对应 GitHub Release 已存在时会更新同名发布资产。
 
 发布 zip 根目录直接包含动态库。`registry.json` 是插件商店条目，仓库地址已指向本项目。

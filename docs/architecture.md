@@ -32,6 +32,14 @@ API Key 原文不落库。界面只展示缩略值，分组使用 HMAC-SHA256 �
 
 ## 页面路由
 
+### 前端渲染层
+
+Dashboard 资源由 `embed.FS` 提供，保留三条页面入口：总览、接口、设置。总览内部继续包含分析构成和请求明细，不增加 Management API 请求。页面结构使用 `data-region` 标记指标带、运行脉搏、分析、事件、接口和设置区域，重构样式时以这些锚点和现有运行时 ID 为契约。
+
+趋势、健康网格、环形分布和 Token 构成均使用原生 SVG/DOM。趋势横坐标按时间戳比例定位，鼠标参考线通过 `requestAnimationFrame` 合帧；健康网格按 `Asia/Shanghai` 的 15 分钟时间槽映射，刷新时复用 480 个格子节点。页面加载沿用 `summary -> analysis -> events` 的阶段顺序，并通过 60 秒前端缓存、可见性判断、`AbortController` 和请求 ID 防止重复查询与竞态覆盖。
+
+主题只从 CPA 宿主根节点读取 `data-theme` / `data-cpa-theme`，通过 `MutationObserver` 同步到资源文档，不保存插件自己的浅色/深色偏好。移动端事件表使用单行 `data-label` 布局，图表和健康网格只允许组件内部滚动。
+
 资源页面：
 
 ```text

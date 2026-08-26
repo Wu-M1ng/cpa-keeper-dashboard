@@ -18,7 +18,6 @@
   const state = {
     page: 'overview',
     range: '24h',
-    theme: readTheme(),
     managementKey: readManagementKey(),
     loading: false,
     pendingRequests: 0,
@@ -36,6 +35,7 @@
     drawerReturnFocus: null,
   };
   let autoRefreshTimer = 0;
+  let resizeTimer = 0;
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -44,11 +44,11 @@
   const number = new Intl.NumberFormat('zh-CN');
   const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
   const money = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 });
-  const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: CHINA_TIME_ZONE });
   const healthDateFormatter = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', timeZone: CHINA_TIME_ZONE });
   const healthDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: CHINA_TIME_ZONE });
-  const time24hFormatter = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  const timeDateFormatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' });
+  const time24hFormatter = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: CHINA_TIME_ZONE });
+  const timeDateFormatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', timeZone: CHINA_TIME_ZONE });
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -64,12 +64,19 @@
     bindHealthInteractivity();
     bindDistributionInteractivity();
     bindTokenInteractivity();
-    window.addEventListener('resize', () => {
-      if (state.page === 'overview' && state.lastTrendPoints.length) renderTrend(state.lastTrendPoints);
-    });
+    window.addEventListener('resize', scheduleTrendResize, { passive: true });
     updateConnection(Boolean(state.managementKey));
+    setFreshness(state.managementKey ? '正在连接' : '需要 Management Key');
     await loadActivePage(false);
     startAutoRefresh();
+  }
+
+  function scheduleTrendResize() {
+    if (resizeTimer) window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => {
+      resizeTimer = 0;
+      if (state.page === 'overview' && state.lastTrendPoints.length) renderTrend(state.lastTrendPoints);
+    }, 120);
   }
 
   function startAutoRefresh() {
@@ -115,12 +122,13 @@
   }
 
   function syncCPATheme() {
-    const host = window.parent !== window ? window.parent.document.documentElement : null;
-    const theme = host && (host.dataset.theme || host.dataset.cpaTheme) || '';
-    const normalized = theme === 'white' ? 'light' : theme;
-    if (normalized === 'dark' || normalized === 'light') {
-      document.documentElement.dataset.cpaTheme = normalized;
-    } else {
+    try {
+      const host = window.parent !== window ? window.parent.document.documentElement : document.documentElement;
+      const theme = host.dataset.theme || host.dataset.cpaTheme || '';
+      const normalized = theme === 'white' || theme === 'light' ? 'light' : theme === 'black' || theme === 'dark' ? 'dark' : '';
+      if (normalized) document.documentElement.dataset.cpaTheme = normalized;
+      else delete document.documentElement.dataset.cpaTheme;
+    } catch (_) {
       delete document.documentElement.dataset.cpaTheme;
     }
   }
@@ -238,45 +246,6 @@
     grid.addEventListener('mouseleave', () => tooltip.classList.remove('is-visible'));
   }
 
-  function bindDistributionInteractivity() {
-    const container = $('#distribution-grid');
-    const tooltip = $('#floating-tooltip');
-    container.addEventListener('mouseover', (event) => {
-      const item = event.target.closest('.donut-segment, .distribution-row');
-      const card = event.target.closest('.distribution-card');
-      if (!item || !card) return;
-      const { idx, name, reqs, pct, color } = item.dataset;
-      const layout = card.querySelector('.donut-layout');
-      layout.classList.add('has-hover');
-      layout.querySelectorAll('.donut-segment, .distribution-row').forEach((element) => {
-        element.classList.toggle('is-active', element.dataset.idx === idx);
-      });
-      const nameElement = card.querySelector('.dct-name');
-      const valueElement = card.querySelector('.dct-val');
-      nameElement.textContent = name;
-      nameElement.style.color = color;
-      valueElement.textContent = pct;
-      tooltip.innerHTML = `<div class="fgt-title" style="color:${color}">${esc(name)}</div>
-        <div class="fgt-row"><span>请求占比</span><strong>${esc(pct)}</strong></div>
-        <div class="fgt-row"><span>累计请求数</span><strong>${esc(reqs)} 次</strong></div>`;
-      tooltip.classList.add('is-visible');
-    });
-    container.addEventListener('mousemove', (event) => positionFloatingTooltip(tooltip, event));
-    container.addEventListener('mouseout', (event) => {
-      const card = event.target.closest('.distribution-card');
-      if (!card || card.contains(event.relatedTarget)) return;
-      const layout = card.querySelector('.donut-layout');
-      layout.classList.remove('has-hover');
-      layout.querySelectorAll('.donut-segment, .distribution-row').forEach((element) => element.classList.remove('is-active'));
-      const nameElement = card.querySelector('.dct-name');
-      const valueElement = card.querySelector('.dct-val');
-      nameElement.textContent = '占比率';
-      nameElement.style.color = 'var(--muted)';
-      valueElement.textContent = 'TOP 5';
-      tooltip.classList.remove('is-visible');
-    });
-  }
-
   function positionFloatingTooltip(tooltip, event) {
     const halfWidth = Math.max(95, tooltip.offsetWidth / 2);
     const left = Math.max(halfWidth + 12, Math.min(window.innerWidth - halfWidth - 12, event.clientX));
@@ -336,17 +305,20 @@
     state.refreshDeadline = 0;
     let completed = false;
     setLoading(true);
+    setFreshness('正在刷新', 'stale');
     try {
       if (page === 'overview') await loadOverview(force, controller.signal, requestID);
       if (page === 'interfaces') await loadInterfaces(force, controller.signal, requestID);
       if (page === 'settings') await loadSettings(force, controller.signal, requestID);
       if (requestID !== state.loadRequestID) return;
       updateConnection(true);
+      setFreshness(`更新于 ${new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())}`, 'fresh');
       completed = true;
     } catch (error) {
       if (error.name !== 'AuthRequired' && error.name !== 'AbortError') {
         toast(error.message || '加载失败', true);
         updateConnection(false);
+        setFreshness('加载失败', 'error');
       }
     } finally {
       if (requestID !== state.loadRequestID) return;
@@ -458,7 +430,16 @@
   async function download(path, filename) {
     try {
       if (!state.managementKey) return showAuthDialog();
+      state.pendingRequests += 1;
       const response = await fetch(path, { headers: { Authorization: `Bearer ${state.managementKey}` } });
+      if (response.status === 401) {
+        sessionStorage.removeItem('usage-keeper-management-key');
+        state.managementKey = '';
+        clearFrontendCache();
+        updateConnection(false);
+        showAuthDialog();
+        throw namedError('AuthRequired', 'Management Key 已失效');
+      }
       if (!response.ok) throw new Error(`导出失败 (${response.status})`);
       const blob = await response.blob();
       const href = URL.createObjectURL(blob);
@@ -471,7 +452,9 @@
       URL.revokeObjectURL(href);
       toast('导出完成');
     } catch (error) {
-      toast(error.message || '导出失败', true);
+      if (error.name !== 'AuthRequired') toast(error.message || '导出失败', true);
+    } finally {
+      state.pendingRequests = Math.max(0, state.pendingRequests - 1);
     }
   }
 
@@ -533,28 +516,27 @@
         <div class="kpi-daily-item" style="--metric-accent: var(--blue);">
           <span class="kpi-di-icon">${icon('activity')}</span>
           <span class="kpi-di-copy"><span class="kpi-di-label">日均请求</span></span>
-          <strong class="kpi-di-val kpi-num-animate" data-countup="${kpi.avg_requests_daily}" data-format="compact">0</strong>
+          <strong class="kpi-di-val kpi-num-animate">${formatCompact(kpi.avg_requests_daily)}</strong>
         </div>
         <div class="kpi-daily-item" style="--metric-accent: var(--purple);">
           <span class="kpi-di-icon">${icon('diamond')}</span>
           <span class="kpi-di-copy"><span class="kpi-di-label">日均 Token</span></span>
-          <strong class="kpi-di-val kpi-num-animate" data-countup="${kpi.avg_tokens_daily}" data-format="compact">0</strong>
+          <strong class="kpi-di-val kpi-num-animate">${formatCompact(kpi.avg_tokens_daily)}</strong>
         </div>
         <div class="kpi-daily-item" style="--metric-accent: var(--yellow);">
           <span class="kpi-di-icon">${icon('dollar')}</span>
           <span class="kpi-di-copy"><span class="kpi-di-label">日均费用</span></span>
-          <strong class="kpi-di-val kpi-num-animate" data-countup="${kpi.avg_cost_daily}" data-format="money">$0.00</strong>
+          <strong class="kpi-di-val kpi-num-animate">${formatMoney(kpi.avg_cost_daily)}</strong>
         </div>
       </div></article>
-      <article class="kpi-panel theme-blue"><div class="kpi-header"><h3 class="kpi-title">总请求数</h3><div class="kpi-icon-badge theme-blue">${icon('activity')}</div></div><strong class="kpi-main-val kpi-num-animate" data-countup="${kpi.requests}" data-format="int">0</strong><div class="kpi-sub-info"><span class="dot-success">成功: ${formatInt(kpi.successes)}</span><span class="dot-failed">失败: ${formatInt(kpi.failures)}</span><span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span></div><div class="sparkline-box" style="--card-theme:var(--blue)">${makeSparkline(trend, 'requests', '#326ff5', 'requests')}</div></article>
-      <article class="kpi-panel theme-purple"><div class="kpi-header"><h3 class="kpi-title">总 Token 消耗</h3><div class="kpi-icon-badge theme-purple">${icon('diamond')}</div></div><strong class="kpi-main-val kpi-num-animate" data-countup="${kpi.total_tokens}" data-format="compact">0</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span><span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--purple)">${makeSparkline(trend, 'tokens', '#7738ee', 'tokens')}</div></article>
+      <article class="kpi-panel theme-blue"><div class="kpi-header"><h3 class="kpi-title">总请求数</h3><div class="kpi-icon-badge theme-blue">${icon('activity')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatInt(kpi.requests)}</strong><div class="kpi-sub-info"><span class="dot-success">成功: ${formatInt(kpi.successes)}</span><span class="dot-failed">失败: ${formatInt(kpi.failures)}</span><span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span></div><div class="sparkline-box" style="--card-theme:var(--blue)">${makeSparkline(trend, 'requests', '#326ff5', 'requests')}</div></article>
+      <article class="kpi-panel theme-purple"><div class="kpi-header"><h3 class="kpi-title">总 Token 消耗</h3><div class="kpi-icon-badge theme-purple">${icon('diamond')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatCompact(kpi.total_tokens)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span><span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--purple)">${makeSparkline(trend, 'tokens', '#7738ee', 'tokens')}</div></article>
     </div><div class="kpi-row-bottom">
-      <article class="kpi-panel theme-green"><div class="kpi-header"><h3 class="kpi-title">RPM（每分钟请求）</h3><div class="kpi-icon-badge theme-green">${icon('clock')}</div></div><strong class="kpi-main-val kpi-num-animate" data-countup="${kpi.rpm}" data-format="number">0.00</strong><div class="kpi-sub-info"><span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span></div><div class="sparkline-box" style="--card-theme:var(--green)">${makeSparkline(trend, 'requests', '#20b95a', 'rpm')}</div></article>
-      <article class="kpi-panel theme-orange"><div class="kpi-header"><h3 class="kpi-title">TPM（每分钟 Token）</h3><div class="kpi-icon-badge theme-orange">${icon('trend-up')}</div></div><strong class="kpi-main-val kpi-num-animate" data-countup="${kpi.tpm}" data-format="compact">0</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--orange)">${makeSparkline(trend, 'tokens', '#ff7a12', 'tpm')}</div></article>
-      <article class="kpi-panel theme-teal"><div class="kpi-header"><h3 class="kpi-title">缓存命中率</h3><div class="kpi-icon-badge theme-teal">${icon('percent')}</div></div><strong class="kpi-main-val kpi-num-animate" data-countup="${kpi.cache_rate}" data-format="percent">0.0%</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--teal)">${makeSparkline(trend, 'hit_rate', '#18ad9d', 'cache')}</div></article>
-      <article class="kpi-panel theme-yellow"><div class="kpi-header"><h3 class="kpi-title">总费用</h3><div class="kpi-icon-badge theme-yellow">${icon('dollar')}</div></div><strong class="kpi-main-val kpi-num-animate" data-countup="${kpi.cost_usd}" data-format="money">$0.00</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--yellow)">${makeSparkline(trend, 'actual_cost', '#dda918', 'cost')}</div></article>
+      <article class="kpi-panel theme-green"><div class="kpi-header"><h3 class="kpi-title">RPM（每分钟请求）</h3><div class="kpi-icon-badge theme-green">${icon('clock')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatNumber(kpi.rpm, 2)}</strong><div class="kpi-sub-info"><span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span></div><div class="sparkline-box" style="--card-theme:var(--green)">${makeSparkline(trend, 'requests', '#20b95a', 'rpm')}</div></article>
+      <article class="kpi-panel theme-orange"><div class="kpi-header"><h3 class="kpi-title">TPM（每分钟 Token）</h3><div class="kpi-icon-badge theme-orange">${icon('trend-up')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatCompact(kpi.tpm)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--orange)">${makeSparkline(trend, 'tokens', '#ff7a12', 'tpm')}</div></article>
+      <article class="kpi-panel theme-teal"><div class="kpi-header"><h3 class="kpi-title">缓存命中率</h3><div class="kpi-icon-badge theme-teal">${icon('percent')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatPercent(kpi.cache_rate)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--teal)">${makeSparkline(trend, 'hit_rate', '#18ad9d', 'cache')}</div></article>
+      <article class="kpi-panel theme-yellow"><div class="kpi-header"><h3 class="kpi-title">总费用</h3><div class="kpi-icon-badge theme-yellow">${icon('dollar')}</div></div><strong class="kpi-main-val kpi-num-animate">${formatMoney(kpi.cost_usd)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--yellow)">${makeSparkline(trend, 'actual_cost', '#dda918', 'cost')}</div></article>
     </div>`;
-    runCountUp($('#overview-kpis'));
   }
 
   function buildClampedSmoothPath(points, minY, maxY) {
@@ -571,21 +553,22 @@
   }
 
   function formatAxisNumber(value) {
-    if (value >= 1e8) return `${(value / 1e8).toFixed(1)}亿`;
-    if (value >= 1e4) return `${(value / 1e4).toFixed(0)}万`;
-    if (value >= 1e3) return `${(value / 1e3).toFixed(0)}k`;
-    return String(Math.round(value));
+    return formatTokenCompact(value);
   }
 
   function renderTrend(rawPoints) {
     const host = $('#trend-chart');
     const normalizedPoints = rawPoints.map((point) => ({
       ...point,
+      timestamp_ms: Number(point.timestamp_ms || 0),
+      requests: Number(point.requests || 0),
+      tokens: Number(point.tokens || point.total_tokens || 0),
+      reasoning: Number(point.reasoning || point.reasoning_tokens || 0),
       input: Number(point.input || 0), output: Number(point.output || 0),
       cache_write: Number(point.cache_write || 0), cache_read: Number(point.cache_read || 0),
       hit_rate: Number(point.hit_rate || 0), actual_cost: Number(point.actual_cost || point.cost_usd || 0),
       standard_cost: Number(point.standard_cost || 0),
-    }));
+    })).sort((leftPoint, rightPoint) => leftPoint.timestamp_ms - rightPoint.timestamp_ms);
     const points = normalizedPoints.filter((point) => point.requests > 0 || point.tokens > 0 ||
       point.input > 0 || point.output > 0 || point.cache_write > 0 || point.cache_read > 0 ||
       point.reasoning > 0 || point.actual_cost > 0 || point.standard_cost > 0);
@@ -608,7 +591,7 @@
 
     const styles = getComputedStyle(host);
     const horizontalPadding = parseFloat(styles.paddingLeft || '0') + parseFloat(styles.paddingRight || '0');
-    const width = Math.max(720, Math.round(host.clientWidth - horizontalPadding)), height = 340, left = 65, right = 55, top = 25, bottom = 45;
+    const width = Math.max(520, Math.round(host.clientWidth - horizontalPadding)), height = 340, left = 65, right = 55, top = 25, bottom = 45;
     const plotWidth = width - left - right, plotHeight = height - top - bottom, zeroY = top + plotHeight;
 
     const tokenKeys = dimensions.filter((dim) => dim.axis === 'token' && active[dim.key]).map((dim) => dim.key);
@@ -616,7 +599,13 @@
     const hasTokenActive = tokenKeys.length > 0;
     const maxToken = hasTokenActive ? Math.max(1, ...tokenValues) * 1.15 : 1;
 
-    const x = (index) => left + (points.length === 1 ? plotWidth / 2 : index * plotWidth / (points.length - 1));
+    const firstTimestamp = points[0].timestamp_ms;
+    const lastTimestamp = points.at(-1).timestamp_ms;
+    const timestampSpan = Math.max(0, lastTimestamp - firstTimestamp);
+    const x = (index) => {
+      if (points.length === 1 || timestampSpan === 0) return left + plotWidth / 2;
+      return left + Math.max(0, Math.min(1, (points[index].timestamp_ms - firstTimestamp) / timestampSpan)) * plotWidth;
+    };
     const tokenY = (value) => Math.min(zeroY, Math.max(top, zeroY - value / maxToken * plotHeight));
     const rateY = (value) => Math.min(zeroY, Math.max(top, zeroY - Math.max(0, Math.min(1, value)) * plotHeight));
 
@@ -657,14 +646,18 @@
 
     host.innerHTML = `<svg class="trend-svg-large" viewBox="0 0 ${width} ${height}" id="trend-svg-element" role="img" aria-label="输入、输出、缓存和缓存命中率趋势">${defs}${leftGrid}${rightGrid}<g clip-path="url(#chart-reveal-clip)">${areaPaths}${linePaths}${pointDots}</g>${xLabels}<line id="crosshair-line" class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${zeroY}" hidden/><g id="active-dots-group"></g></svg><div id="trend-tooltip" class="trend-tooltip-popup" hidden></div>`;
     const svg = $('#trend-svg-element'), crosshair = $('#crosshair-line'), dots = $('#active-dots-group'), tooltip = $('#trend-tooltip');
-    host.onmousemove = (event) => {
+    let hoverFrame = 0;
+    let lastPointer = null;
+    const clearHover = () => { crosshair.hidden = true; dots.replaceChildren(); tooltip.hidden = true; };
+    const updateHover = (clientX, clientY) => {
       const rect = svg.getBoundingClientRect();
-      const viewX = (event.clientX - rect.left) / rect.width * width;
-      if (viewX < left || viewX > width-right) {
-        crosshair.hidden = true; dots.innerHTML = ''; tooltip.hidden = true; return;
-      }
-      const step = points.length === 1 ? plotWidth : plotWidth / (points.length - 1);
-      const index = points.length === 1 ? 0 : Math.max(0, Math.min(points.length - 1, Math.round((viewX-left)/step)));
+      if (!rect.width) return;
+      const viewX = (clientX - rect.left) / rect.width * width;
+      if (viewX < left || viewX > width - right) { clearHover(); return; }
+      const ratio = plotWidth ? Math.max(0, Math.min(1, (viewX - left) / plotWidth)) : 0;
+      const targetTimestamp = timestampSpan ? firstTimestamp + ratio * timestampSpan : firstTimestamp;
+      const index = points.length === 1 ? 0 : points.reduce((closestIndex, point, pointIndex) =>
+        Math.abs(point.timestamp_ms - targetTimestamp) < Math.abs(points[closestIndex].timestamp_ms - targetTimestamp) ? pointIndex : closestIndex, 0);
       const point = points[index], pointX = x(index);
       crosshair.setAttribute('x1', pointX); crosshair.setAttribute('x2', pointX); crosshair.hidden = false;
       dots.innerHTML = dimensions.filter((dimension) => active[dimension.key]).map((dimension) => `<circle cx="${pointX}" cy="${dimension.axis === 'rate' ? rateY(point[dimension.key]) : tokenY(point[dimension.key])}" r="5.5" fill="${dimension.color}" stroke="var(--surface)" stroke-width="2.5" class="active-hover-dot"/>`).join('');
@@ -675,17 +668,48 @@
       }).join('');
       tooltip.innerHTML = `<div class="tt-header">${esc(formatDateTime(point.timestamp_ms))}</div><div class="tt-body">${rows}</div><div class="tt-footer">实际费用: <strong>${formatMoney(point.actual_cost)}</strong> · 标准费用: <strong>${formatMoney(point.standard_cost)}</strong></div>`;
       const halfWidth = 135;
-      tooltip.style.left = `${Math.max(halfWidth+12, Math.min(window.innerWidth-halfWidth-12, event.clientX))}px`;
-      tooltip.style.top = `${event.clientY}px`;
-      tooltip.style.transform = event.clientY < 250 ? 'translate(-50%, 16px)' : 'translate(-50%, -100%) translateY(-16px)';
+      tooltip.style.left = `${Math.max(halfWidth + 12, Math.min(window.innerWidth - halfWidth - 12, clientX))}px`;
+      tooltip.style.top = `${clientY}px`;
+      tooltip.style.transform = clientY < 250 ? 'translate(-50%, 16px)' : 'translate(-50%, -100%) translateY(-16px)';
       tooltip.hidden = false;
     };
-    host.onmouseleave = () => { crosshair.hidden = true; dots.innerHTML = ''; tooltip.hidden = true; };
+    host.onmousemove = (event) => {
+      lastPointer = { clientX: event.clientX, clientY: event.clientY };
+      if (hoverFrame) return;
+      hoverFrame = requestAnimationFrame(() => {
+        hoverFrame = 0;
+        if (lastPointer) updateHover(lastPointer.clientX, lastPointer.clientY);
+      });
+    };
+    host.onmouseleave = () => {
+      if (hoverFrame) cancelAnimationFrame(hoverFrame);
+      hoverFrame = 0;
+      lastPointer = null;
+      clearHover();
+    };
   }
 
   function renderHealth(points) {
     const host = $('#health-grid');
-    const visible = points.slice(-(HEALTH_DAYS * HEALTH_SLOTS_PER_DAY));
+    const slotMilliseconds = 15 * 60 * 1000;
+    const normalized = points.map((point) => ({
+      ...point,
+      timestamp_ms: Number(point.timestamp_ms || 0),
+      requests: Number(point.requests || 0),
+      failures: Number(point.failures || 0),
+    })).filter((point) => point.timestamp_ms > 0).sort((leftPoint, rightPoint) => leftPoint.timestamp_ms - rightPoint.timestamp_ms);
+    const latestTimestamp = normalized.at(-1)?.timestamp_ms || 0;
+    const dayMilliseconds = 24 * 60 * 60 * 1000;
+    const chinaOffsetMilliseconds = 8 * 60 * 60 * 1000;
+    const latestDayStart = latestTimestamp
+      ? Math.floor((latestTimestamp + chinaOffsetMilliseconds) / dayMilliseconds) * dayMilliseconds - chinaOffsetMilliseconds
+      : 0;
+    const firstSlot = latestDayStart - (HEALTH_DAYS - 1) * dayMilliseconds;
+    const pointsBySlot = new Map(normalized.map((point) => [Math.floor(point.timestamp_ms / slotMilliseconds) * slotMilliseconds, point]));
+    const visible = latestTimestamp ? Array.from({ length: HEALTH_DAYS * HEALTH_SLOTS_PER_DAY }, (_, index) => {
+      const timestamp = firstSlot + index * slotMilliseconds;
+      return pointsBySlot.get(timestamp) || { timestamp_ms: timestamp, requests: 0, failures: 0 };
+    }) : [];
     const requests = visible.reduce((sum, point) => sum + Number(point.requests || 0), 0);
     const failures = visible.reduce((sum, point) => sum + Number(point.failures || 0), 0);
     const successes = Math.max(0, requests - failures);
@@ -773,6 +797,7 @@
       ['最近批写', `${formatNumber(runtime.last_batch_ms, 2)} ms`, '#dda918'],
     ];
     $('#runtime-strip').innerHTML = items.map(([label, value, color]) => `<div class="runtime-item"><span><i class="runtime-item-dot" style="background:${color}"></i>${label}</span><strong>${value}</strong></div>`).join('');
+    $('#runtime-strip').setAttribute('aria-label', `队列 ${formatInt(runtime.queue_depth || 0)} / ${formatInt(queueCapacity)}，已接收 ${formatInt(runtime.accepted)}，已写入 ${formatInt(runtime.written)}，已丢弃 ${formatInt(runtime.dropped)}`);
     if (storage.last_error) toast(storage.last_error, true);
   }
 
@@ -795,23 +820,28 @@
   }
 
   function distributionCard(title, values) {
-    const top = values.filter((item) => Number(item.requests || 0) > 0).slice(0, 5);
-    const total = top.reduce((sum, item) => sum + Number(item.requests || 0), 0) || 1;
+    const ranked = values.filter((item) => Number(item.requests || 0) > 0).slice().sort((leftItem, rightItem) => Number(rightItem.requests || 0) - Number(leftItem.requests || 0));
+    const total = ranked.reduce((sum, item) => sum + Number(item.requests || 0), 0) || 1;
+    const top = ranked.slice(0, 5);
+    const topTotal = top.reduce((sum, item) => sum + Number(item.requests || 0), 0);
+    const remainder = Math.max(0, total - topTotal);
+    const chartItems = remainder > 0 ? [...top, { name: '其他', requests: remainder, other: true }] : top;
     const circumference = 2 * Math.PI * 38;
     let offset = 0;
-    const segments = top.map((item, index) => {
+    const segments = chartItems.map((item, index) => {
       const percentage = ((item.requests || 0) / total * 100).toFixed(1);
       const calculatedLength = Number(item.requests || 0) / total * circumference;
-      const length = index === top.length - 1 ? circumference - offset : calculatedLength;
-      const color = COLORS[index % COLORS.length];
-      const segment = `<circle class="donut-segment" data-idx="${index}" data-name="${esc(item.name || '未识别')}" data-reqs="${formatInt(item.requests)}" data-pct="${percentage}%" data-color="${color}" cx="52" cy="52" r="38" stroke="${color}" style="--final-dasharray: ${length} ${circumference-length}; stroke-dasharray: var(--final-dasharray);" stroke-dashoffset="${-offset}"/>`;
+      // The final segment closes the ring; the legacy top-five path used: index === top.length - 1 ? circumference - offset
+      const length = index === chartItems.length - 1 ? Math.max(0, circumference - offset) : calculatedLength;
+      const color = item.other ? '#9aa7b8' : COLORS[index % COLORS.length];
+      const segment = `<circle class="donut-segment" data-idx="${index}" data-name="${esc(item.name || '未识别')}" data-reqs="${formatInt(item.requests)}" data-pct="${percentage}%" data-color="${color}" tabindex="0" role="img" aria-label="${esc(item.name || '未识别')} ${percentage}%" cx="52" cy="52" r="38" stroke="${color}" style="--final-dasharray: ${length} ${circumference-length}; stroke-dasharray: var(--final-dasharray);" stroke-dashoffset="${-offset}"/>`;
       offset += length;
       return segment;
     }).join('');
-    const list = top.length ? top.map((item, index) => {
+    const list = top.length ? [...top, ...(remainder > 0 ? [{ name: '其他', requests: remainder, other: true }] : [])].map((item, index) => {
       const percentage = ((item.requests || 0) / total * 100).toFixed(1);
-      const color = COLORS[index % COLORS.length];
-      return `<div class="distribution-row" data-idx="${index}" data-name="${esc(item.name || '未识别')}" data-reqs="${formatInt(item.requests)}" data-pct="${percentage}%" data-color="${color}"><i style="background:${color}"></i><span title="${esc(item.name)}">${esc(item.name || '未识别')}</span><strong>${formatCompact(item.requests)}</strong></div>`;
+      const color = item.other ? '#9aa7b8' : COLORS[index % COLORS.length];
+      return `<div class="distribution-row" data-idx="${index}" data-name="${esc(item.name || '未识别')}" data-reqs="${formatInt(item.requests)}" data-pct="${percentage}%" data-color="${color}" tabindex="0" role="button" aria-label="${esc(item.name || '未识别')} ${percentage}%"><i style="background:${color}"></i><span title="${esc(item.name)}">${esc(item.name || '未识别')}</span><strong>${formatCompact(item.requests)}</strong></div>`;
     }).join('') : '<div class="cell-sub">暂无数据</div>';
     return `<article class="distribution-card"><h2>${title}</h2><div class="donut-layout"><div class="donut-wrapper"><svg class="donut" viewBox="0 0 104 104" aria-hidden="true"><circle class="donut-track" cx="52" cy="52" r="38"/>${segments}</svg><div class="donut-center-text"><span class="dct-name">占比率</span><span class="dct-val">TOP 5</span></div></div><div class="distribution-list">${list}</div></div></article>`;
   }
@@ -831,12 +861,12 @@
 
     const stackItems = parts.map(([label, value, color, idx]) => {
       const pct = (value / sum * 100).toFixed(1);
-      return `<span class="token-stack-segment" data-idx="${idx}" data-name="${label}" data-val="${formatInt(value)}" data-compact="${formatCompact(value)}" data-pct="${pct}%" data-color="${color}" style="width:${pct}%;background:${color}"></span>`;
+      return `<span class="token-stack-segment" data-idx="${idx}" data-name="${label}" data-val="${formatInt(value)}" data-compact="${formatCompact(value)}" data-pct="${pct}%" data-color="${color}" tabindex="0" role="button" aria-label="${label} Token ${formatTokenCompact(value)}" style="width:${pct}%;background:${color}"></span>`;
     }).join('');
 
     const legendItems = parts.map(([label, value, color, idx]) => {
       const pct = (value / sum * 100).toFixed(1);
-      return `<div class="token-legend-item" data-idx="${idx}" data-name="${label}" data-val="${formatInt(value)}" data-compact="${formatCompact(value)}" data-pct="${pct}%" data-color="${color}" style="border-color:${color}"><span>${label}</span><strong>${formatCompact(value)}</strong></div>`;
+      return `<div class="token-legend-item" data-idx="${idx}" data-name="${label}" data-val="${formatInt(value)}" data-compact="${formatCompact(value)}" data-pct="${pct}%" data-color="${color}" tabindex="0" role="button" aria-label="${label} Token ${formatTokenCompact(value)}" style="border-color:${color}"><span>${label}</span><strong>${formatCompact(value)}</strong></div>`;
     }).join('');
 
     $('#token-composition').innerHTML = `<div class="token-stack">${stackItems}</div><div class="token-legend">${legendItems}</div>`;
@@ -851,12 +881,11 @@
 
   function bindDistributionInteractivity() {
     const grid = $('#distribution-grid');
+    const tooltip = $('#floating-tooltip');
     if (!grid) return;
 
-    grid.addEventListener('mouseover', (event) => {
-      const item = event.target.closest('.donut-segment, .distribution-row');
-      if (!item) return;
-      const card = item.closest('.distribution-card');
+    const activate = (item, event) => {
+      const card = item?.closest('.distribution-card');
       if (!card) return;
       const { idx, name, reqs, pct, color } = item.dataset;
       card.classList.add('has-hover');
@@ -870,25 +899,53 @@
         nameEl.style.color = color || 'var(--text)';
         valEl.textContent = `${pct}`;
       }
-    });
-
-    grid.addEventListener('mouseout', (event) => {
-      const card = event.target.closest('.distribution-card');
-      if (!card || card.contains(event.relatedTarget)) return;
+      tooltip.innerHTML = `<div class="fgt-title" style="color:${esc(color || 'var(--text)')}">${esc(name || '未识别')}</div><div class="fgt-row"><span>请求占比</span><strong>${esc(pct || '0%')}</strong></div><div class="fgt-row"><span>累计请求数</span><strong>${esc(reqs || '0')} 次</strong></div>`;
+      tooltip.classList.add('is-visible');
+      if (event?.clientX != null) positionFloatingTooltip(tooltip, event);
+      else {
+        const rect = item.getBoundingClientRect();
+        positionFloatingTooltip(tooltip, { clientX: rect.left + rect.width / 2, clientY: rect.top });
+      }
+    };
+    const clear = (card) => {
+      if (!card) return;
       card.classList.remove('has-hover');
       card.querySelectorAll('.donut-segment, .distribution-row').forEach((el) => el.classList.remove('is-active'));
       const nameEl = card.querySelector('.dct-name');
       const valEl = card.querySelector('.dct-val');
-      if (nameEl && valEl) {
-        nameEl.textContent = '占比率';
-        nameEl.style.color = 'var(--muted)';
-        valEl.textContent = 'TOP 5';
-      }
+      if (nameEl && valEl) { nameEl.textContent = '占比率'; nameEl.style.color = 'var(--muted)'; valEl.textContent = 'TOP 5'; }
+      tooltip.classList.remove('is-visible');
+    };
+
+    grid.addEventListener('mouseover', (event) => {
+      const item = event.target.closest('.donut-segment, .distribution-row');
+      if (item) activate(item, event);
+    });
+    grid.addEventListener('mousemove', (event) => {
+      if (tooltip.classList.contains('is-visible')) positionFloatingTooltip(tooltip, event);
+    });
+
+    grid.addEventListener('mouseout', (event) => {
+      const card = event.target.closest('.distribution-card');
+      if (card && !card.contains(event.relatedTarget)) clear(card);
+    });
+    grid.addEventListener('focusin', (event) => {
+      const item = event.target.closest('.donut-segment, .distribution-row');
+      if (item) activate(item);
+    });
+    grid.addEventListener('focusout', (event) => {
+      const card = event.target.closest('.distribution-card');
+      if (card && !card.contains(event.relatedTarget)) clear(card);
+    });
+    grid.addEventListener('keydown', (event) => {
+      const item = event.target.closest('.donut-segment, .distribution-row');
+      if (!item) return;
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(item); }
+      if (event.key === 'Escape') clear(item.closest('.distribution-card'));
     });
   }
 
   function bindTokenInteractivity() {
-    bindDistributionInteractivity();
     const container = $('#token-composition');
     const tooltip = $('#floating-tooltip');
     let pinnedTrigger = null;
@@ -901,7 +958,7 @@
         ${cacheRead && cacheRead !== '0' ? `<div class="fgt-row"><span>缓存读取 Token</span><strong>${esc(cacheRead)}</strong></div>` : ''}
         ${cacheWrite && cacheWrite !== '0' ? `<div class="fgt-row"><span>缓存创建 Token</span><strong>${esc(cacheWrite)}</strong></div>` : ''}
         ${reasoning && reasoning !== '0' ? `<div class="fgt-row"><span>思考/推理 Token</span><strong>${esc(reasoning)}</strong></div>` : ''}
-        <div class="fgt-footer" style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.15)">总 Token: <strong style="color:#38bdf8">${esc(total)}</strong></div>`;
+        <div class="fgt-footer">总 Token: <strong>${esc(total)}</strong></div>`;
     }
 
     if (container) {
@@ -1043,9 +1100,8 @@
     $('#interface-summary').innerHTML = `
       <div class="interface-card theme-blue"><div class="ic-head"><span>客户端 Key 凭证</span><div class="ic-icon">${icon('key')}</div></div><strong class="ic-val">${formatInt(apiKeys.length)} <small>个活跃 Key</small></strong></div>
       <div class="interface-card theme-purple"><div class="ic-head"><span>上游通道集群</span><div class="ic-icon">${icon('database')}</div></div><strong class="ic-val">${formatInt(upstreams.length)} <small>个 Provider</small></strong></div>
-      <div class="interface-card theme-green"><div class="ic-head"><span>接口总请求量</span><div class="ic-icon">${icon('activity')}</div></div><strong class="ic-val" data-countup="${requests}" data-format="compact">0 <small>次</small></strong></div>
+      <div class="interface-card theme-green"><div class="ic-head"><span>接口总请求量</span><div class="ic-icon">${icon('activity')}</div></div><strong class="ic-val">${formatCompact(requests)} <small>次</small></strong></div>
       <div class="interface-card theme-orange"><div class="ic-head"><span>上游平均响应延迟</span><div class="ic-icon">${icon('clock')}</div></div><strong class="ic-val">${formatDuration(weightedLatency)} <small>${formatInt(healthy)} 个健康</small></strong></div>`;
-    runCountUp(host);
   }
 
   function renderAPIKeys(items) {
@@ -1186,6 +1242,7 @@
     const metrics = [
       ['数据库', formatBytes(storage.database_bytes)], ['事件', formatInt(storage.event_count)],
       ['Rollup', formatInt(storage.rollup_count)], ['队列丢弃', formatInt(runtime.dropped)],
+      ['写入失败', formatInt(runtime.write_failures)], ['最近批写', `${formatNumber(runtime.last_batch_ms, 2)} ms`],
     ];
     $('#storage-metrics').innerHTML = metrics.map(([label, value]) => metric(label, value)).join('');
   }
@@ -1260,14 +1317,6 @@
     return '';
   }
 
-  function readTheme() {
-    try {
-      const saved = localStorage.getItem('usage-keeper-theme');
-      if (saved === 'light' || saved === 'dark' || saved === 'auto') return saved;
-    } catch (_) { /* Storage may be disabled. */ }
-    return 'auto';
-  }
-
   function decodeObfuscated(value) {
     const prefix = 'enc::v1::';
     if (!value.startsWith(prefix)) return value;
@@ -1321,6 +1370,15 @@
     }
   }
 
+  function setFreshness(label, status = '') {
+    const element = $('#freshness-state');
+    if (!element) return;
+    element.textContent = label;
+    element.classList.toggle('is-fresh', status === 'fresh');
+    element.classList.toggle('is-stale', status === 'stale');
+    element.classList.toggle('is-error', status === 'error');
+  }
+
   function setLoading(value) {
     state.loading = value;
     $('#refresh-button').classList.toggle('is-spinning', value);
@@ -1334,31 +1392,6 @@
     item.textContent = message;
     $('#toast-region').appendChild(item);
     setTimeout(() => item.remove(), 3600);
-  }
-
-  function runCountUp(container = document) {
-    $$('[data-countup]', container).forEach((el) => {
-      const target = Number(el.dataset.countup);
-      if (isNaN(target)) return;
-      const formatType = el.dataset.format;
-      const duration = 1200;
-      const startTime = performance.now();
-      const step = (time) => {
-        let progress = (time - startTime) / duration;
-        if (progress > 1) progress = 1;
-        const ease = 1 - Math.pow(1 - progress, 4);
-        const current = target * ease;
-        if (formatType === 'compact') el.textContent = formatCompact(current);
-        else if (formatType === 'money') el.textContent = formatMoney(current);
-        else if (formatType === 'int') el.textContent = formatInt(current);
-        else if (formatType === 'percent') el.textContent = formatPercent(current);
-        else if (formatType === 'number') el.textContent = formatNumber(current, 2);
-        else el.textContent = current.toFixed(0);
-        if (progress < 1) requestAnimationFrame(step);
-        else el.removeAttribute('data-countup');
-      };
-      requestAnimationFrame(step);
-    });
   }
 
   function empty(element, label) { element.innerHTML = `<div class="empty-state" style="display:grid;place-items:center">${esc(label)}</div>`; }
