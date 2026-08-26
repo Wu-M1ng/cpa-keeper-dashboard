@@ -738,6 +738,8 @@
       return pointsBySlot.get(timestamp) || { timestamp_ms: timestamp, requests: 0, failures: 0 };
     }) : [];
     const requests = visible.reduce((sum, point) => sum + Number(point.requests || 0), 0);
+    const failures = visible.reduce((sum, point) => sum + Number(point.failures || 0), 0);
+    const successes = Math.max(0, requests - failures);
     const rateEl = $('#health-summary');
     const rate = requests ? successes / requests : null;
     rateEl.textContent = rate !== null ? formatPercent(rate) : '--';
