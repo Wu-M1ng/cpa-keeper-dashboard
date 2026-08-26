@@ -626,8 +626,9 @@
       return empty(host, '已取消所有指标，点击上方图例恢复');
     }
 
-    const width = 840, height = 380;
-    const left = 68, right = 55, top = 25, bottom = 45;
+    const width = Math.max(600, Math.round(host.clientWidth || 780));
+    const height = Math.max(340, Math.round(host.clientHeight || 350));
+    const left = 76, right = 58, top = 26, bottom = 44;
     const plotWidth = width - left - right, plotHeight = height - top - bottom, zeroY = top + plotHeight;
 
     const tokenKeys = dimensions.filter((dim) => dim.axis === 'token' && active[dim.key]).map((dim) => dim.key);
@@ -647,30 +648,59 @@
 
     const leftGrid = [0, .25, .5, .75, 1].map((ratio) => {
       const y = top + plotHeight * (1 - ratio);
-      const labelText = hasTokenActive ? formatTokenCompact(maxToken * ratio) : (ratio === 0 ? '0' : '无 Token 系列');
-      return `<line class="${ratio ? 'chart-grid-line' : 'chart-zero-line'}" x1="${left}" y1="${y}" x2="${width-right}" y2="${y}"/><text class="chart-left-label" x="${left-10}" y="${y+4}">${labelText}</text>`;
+      const labelText = ratio === 0 ? '0' : (hasTokenActive ? formatTokenCompact(maxToken * ratio) : '');
+      return `<line class="${ratio ? 'chart-grid-line' : 'chart-zero-line'}" x1="${left}" y1="${y}" x2="${width-right}" y2="${y}"/><text class="chart-left-label" x="${left-12}" y="${y+4}">${labelText}</text>`;
     }).join('');
-    const rightGrid = [0, .2, .4, .6, .8, 1].map((ratio) => `<text class="chart-right-label" x="${width-right+10}" y="${top + plotHeight * (1-ratio) + 4}">${Math.round(ratio*100)}%</text>`).join('');
+    const rightGrid = [0, .2, .4, .6, .8, 1].map((ratio) => {
+      const y = top + plotHeight * (1 - ratio);
+      return `<text class="chart-right-label" x="${width-right+12}" y="${y+4}">${Math.round(ratio*100)}%</text>`;
+    }).join('');
     const labelStep = Math.max(1, Math.floor(points.length / 7));
     const vGridLines = points.map((point, index) => (index % labelStep === 0 || index === points.length - 1) ? `<line class="chart-vgrid-line" x1="${x(index)}" y1="${top}" x2="${x(index)}" y2="${zeroY}"/>` : '').join('');
-    const xLabels = points.map((point, index) => (index % labelStep === 0 || index === points.length - 1) ? `<text class="chart-x-label" x="${x(index)}" y="${zeroY+25}">${esc(formatTime(point.timestamp_ms, state.range))}</text>` : '').join('');
+    const xLabels = points.map((point, index) => (index % labelStep === 0 || index === points.length - 1) ? `<text class="chart-x-label" x="${x(index)}" y="${zeroY+22}">${esc(formatTime(point.timestamp_ms, state.range))}</text>` : '').join('');
 
     let linePaths = '', areaPaths = '', pointDots = '';
     dimensions.forEach((dimension) => {
       if (!active[dimension.key]) return;
-      const pathPoints = points.map((point, index) => ({ x: x(index), y: dimension.axis === 'rate' ? rateY(point[dimension.key]) : tokenY(point[dimension.key]) }));
-      const path = buildClampedSmoothPath(pathPoints, top, zeroY);
-      if (dimension.area && pathPoints.length > 1) {
-        areaPaths += `<path d="${path} L ${pathPoints.at(-1).x} ${zeroY - 1} L ${pathPoints[0].x} ${zeroY - 1} Z" fill="url(#area-gradient-cache)" stroke="none" class="animated-area"/>`;
-      }
-      const isDashed = Boolean(dimension.dashed);
-      const dashAttr = isDashed ? 'stroke-dasharray="6 5"' : '';
-      const lineClass = isDashed ? 'animated-line is-dashed' : 'animated-line';
-      linePaths += `<path d="${path}" fill="none" stroke="${dimension.color}" stroke-width="${dimension.strokeWidth || 3}" ${dashAttr} class="${lineClass}" stroke-linecap="round" stroke-linejoin="round"/>`;
-      if (points.length <= 60) {
-        pathPoints.forEach((pt) => {
-          pointDots += `<circle cx="${pt.x}" cy="${pt.y}" r="4.2" fill="var(--surface)" stroke="${dimension.color}" stroke-width="2.2" class="trend-point-dot"/>`;
-        });
+
+      if (dimension.axis === 'rate') {
+        const validRatePoints = points
+          .map((point, index) => ({
+            x: x(index),
+            y: rateY(point[dimension.key]),
+            val: Number(point[dimension.key] || 0),
+            hasData: (point.input > 0 || point.requests > 0),
+          }))
+          .filter((pt) => pt.hasData);
+
+        if (validRatePoints.length > 1) {
+          const path = buildClampedSmoothPath(validRatePoints, top, zeroY);
+          linePaths += `<path d="${path}" fill="none" stroke="${dimension.color}" stroke-width="${dimension.strokeWidth || 3.2}" stroke-dasharray="6 5" class="animated-line is-dashed" stroke-linecap="round" stroke-linejoin="round"/>`;
+        }
+
+        if (validRatePoints.length <= 60) {
+          validRatePoints.forEach((pt) => {
+            pointDots += `<circle cx="${pt.x}" cy="${pt.y}" r="4.2" fill="var(--surface)" stroke="${dimension.color}" stroke-width="2.2" class="trend-point-dot"/>`;
+          });
+        }
+      } else {
+        const pathPoints = points.map((point, index) => ({
+          x: x(index),
+          y: tokenY(point[dimension.key]),
+          val: Number(point[dimension.key] || 0),
+        }));
+        const path = buildClampedSmoothPath(pathPoints, top, zeroY);
+        if (dimension.area && pathPoints.length > 1) {
+          areaPaths += `<path d="${path} L ${pathPoints.at(-1).x} ${zeroY - 1} L ${pathPoints[0].x} ${zeroY - 1} Z" fill="url(#area-gradient-cache)" stroke="none" class="animated-area"/>`;
+        }
+        linePaths += `<path d="${path}" fill="none" stroke="${dimension.color}" stroke-width="${dimension.strokeWidth || 3}" class="animated-line" stroke-linecap="round" stroke-linejoin="round"/>`;
+        if (points.length <= 60) {
+          pathPoints.forEach((pt) => {
+            if (pt.val > 0) {
+              pointDots += `<circle cx="${pt.x}" cy="${pt.y}" r="4.2" fill="var(--surface)" stroke="${dimension.color}" stroke-width="2.2" class="trend-point-dot"/>`;
+            }
+          });
+        }
       }
     });
 
@@ -682,7 +712,7 @@
       </linearGradient>
     </defs>`;
 
-    host.innerHTML = `<svg class="trend-svg-large" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" id="trend-svg-element" role="img" aria-label="输入、输出、缓存和缓存命中率趋势">${defs}${vGridLines}${leftGrid}${rightGrid}<g>${areaPaths}${linePaths}${pointDots}</g>${xLabels}<line id="crosshair-line" class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${zeroY}" hidden/><g id="active-dots-group"></g></svg><div id="trend-tooltip" class="trend-tooltip-popup" hidden></div>`;
+    host.innerHTML = `<svg class="trend-svg-large" viewBox="0 0 ${width} ${height}" id="trend-svg-element" role="img" aria-label="输入、输出、缓存和缓存命中率趋势">${defs}${vGridLines}${leftGrid}${rightGrid}<g>${areaPaths}${linePaths}${pointDots}</g>${xLabels}<line id="crosshair-line" class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${zeroY}" hidden/><g id="active-dots-group"></g></svg><div id="trend-tooltip" class="trend-tooltip-popup" hidden></div>`;
     const svg = $('#trend-svg-element'), crosshair = $('#crosshair-line'), dots = $('#active-dots-group'), tooltip = $('#trend-tooltip');
     let hoverFrame = 0;
     let lastPointer = null;
@@ -1313,9 +1343,10 @@
   function renderUpstreamLatencyBoard(upstreams = []) {
     const host = $('#upstream-latency-board');
     if (!host) return;
-    if (!upstreams.length) return empty(host, '暂无上游延迟与 SLA 数据');
+    const validUpstreams = upstreams.filter((item) => Number(item.success_rate || 0) > 0);
+    if (!validUpstreams.length) return empty(host, '暂无有效上游延迟与 SLA 数据');
 
-    const ranked = upstreams.slice().sort((a, b) => (a.avg_latency_ms || 0) - (b.avg_latency_ms || 0));
+    const ranked = validUpstreams.slice().sort((a, b) => (a.avg_latency_ms || 0) - (b.avg_latency_ms || 0));
     const maxLatency = Math.max(1000, ...ranked.map((u) => u.avg_latency_ms || 0));
 
     host.innerHTML = `<div class="ul-list">${ranked.map((item, idx) => {
