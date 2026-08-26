@@ -953,12 +953,14 @@
     function populateTokenTooltip(trigger) {
       const { in: tokenIn, out: tokenOut, cacheRead, cacheWrite, reasoning, total } = trigger.dataset;
       tooltip.innerHTML = `<div class="fgt-title">Token 明细</div>
-        <div class="fgt-row"><span>输入 Token</span><strong>${esc(tokenIn)}</strong></div>
-        <div class="fgt-row"><span>输出 Token</span><strong>${esc(tokenOut)}</strong></div>
-        ${cacheRead && cacheRead !== '0' ? `<div class="fgt-row"><span>缓存读取 Token</span><strong>${esc(cacheRead)}</strong></div>` : ''}
-        ${cacheWrite && cacheWrite !== '0' ? `<div class="fgt-row"><span>缓存创建 Token</span><strong>${esc(cacheWrite)}</strong></div>` : ''}
-        ${reasoning && reasoning !== '0' ? `<div class="fgt-row"><span>思考/推理 Token</span><strong>${esc(reasoning)}</strong></div>` : ''}
-        <div class="fgt-footer">总 Token: <strong>${esc(total)}</strong></div>`;
+        <div class="fgt-body">
+          <div class="fgt-row"><span>输入 Token</span><strong>${esc(tokenIn)}</strong></div>
+          <div class="fgt-row"><span>输出 Token</span><strong>${esc(tokenOut)}</strong></div>
+          ${cacheRead && cacheRead !== '0' ? `<div class="fgt-row"><span>缓存读取 Token</span><strong>${esc(cacheRead)}</strong></div>` : ''}
+          ${cacheWrite && cacheWrite !== '0' ? `<div class="fgt-row"><span>缓存创建 Token</span><strong>${esc(cacheWrite)}</strong></div>` : ''}
+          ${reasoning && reasoning !== '0' ? `<div class="fgt-row"><span>思考/推理 Token</span><strong>${esc(reasoning)}</strong></div>` : ''}
+        </div>
+        <div class="fgt-footer"><span>总 Token</span><strong class="fgt-total-val">${esc(total)}</strong></div>`;
     }
 
     if (container) {
@@ -1400,6 +1402,7 @@
   function statusBadge(rate) { return `<span class="status-badge ${rate < .9 ? 'is-failure' : ''}">${formatPercent(rate)}</span>`; }
   function formatInt(value) { return number.format(Number(value || 0)); }
   function formatCompact(value) { return compact.format(Number(value || 0)); }
+  function formatTokenCompact(value) { return compact.format(Number(value || 0)); }
   function formatNumber(value, digits = 1) { return Number(value || 0).toFixed(digits); }
   function formatPercent(value) { return `${(Number(value || 0) * 100).toFixed(value >= .999 ? 2 : 1)}%`; }
   function formatMoney(value) { return money.format(Number(value || 0)); }

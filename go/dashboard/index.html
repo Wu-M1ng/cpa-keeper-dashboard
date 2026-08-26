@@ -48,7 +48,6 @@
       <div class="top-nav-status" data-region="connection-state">
         <span id="connection-dot" class="status-dot"></span>
         <span id="connection-label">管理连接</span>
-        <span class="cpa-theme-state" aria-label="主题来源">跟随 CPA 主题</span>
       </div>
     </header>
 
@@ -85,9 +84,9 @@
               <div class="panel-head health-panel-head">
                 <div><h2>服务健康监测</h2><p>最近5天，15分钟一个网格；绿色代表成功率高，红色代表失败较多。</p></div>
                 <div class="health-summary" aria-label="服务健康汇总">
-                  <span>成功率 <strong id="health-summary">--</strong></span>
-                  <span class="health-success">成功 <strong id="health-success-count">0</strong></span>
-                  <span class="health-failure">失败 <strong id="health-failure-count">0</strong></span>
+                  <span class="health-stat-pill is-rate">成功率 <strong id="health-summary">--</strong></span>
+                  <span class="health-stat-pill is-success"><span class="hsi-dot"></span>成功 <strong id="health-success-count">0</strong></span>
+                  <span class="health-stat-pill is-failure"><span class="hsi-dot"></span>失败 <strong id="health-failure-count">0</strong></span>
                 </div>
               </div>
               <div id="health-grid" class="health-grid" aria-label="最近5天服务健康网格"></div>
