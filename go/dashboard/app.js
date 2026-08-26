@@ -27,7 +27,9 @@
     eventPages: 0,
     eventFilters: {},
     trendActiveDims: { input: true, output: true, cache_write: true, cache_read: true, hit_rate: true },
+    providerTokenActiveDims: { input: true, output: true, cache_read: true, cache_write: true, reasoning: true },
     lastTrendPoints: [],
+    lastInterfacesData: null,
     loadRequestID: 0,
     eventRequestID: 0,
     loadController: null,
@@ -64,6 +66,8 @@
     bindHealthInteractivity();
     bindDistributionInteractivity();
     bindTokenInteractivity();
+    bindProviderTokenInteractivity();
+    initCustomSelects();
     window.addEventListener('resize', scheduleTrendResize, { passive: true });
     updateConnection(Boolean(state.managementKey));
     setFreshness(state.managementKey ? '正在连接' : '需要 Management Key');
@@ -604,11 +608,11 @@
     if (!points.length) return empty(host, '当前范围没有用量');
 
     const dimensions = [
-      { key: 'input', label: '输入', color: '#326ff5', axis: 'token' },
-      { key: 'output', label: '输出', color: '#20b95a', axis: 'token' },
-      { key: 'cache_write', label: '缓存创建', color: '#ff7a12', axis: 'token' },
-      { key: 'cache_read', label: '缓存读取', color: '#18ad9d', axis: 'token', area: true },
-      { key: 'hit_rate', label: '缓存命中率', color: '#7738ee', axis: 'rate', dashed: true },
+      { key: 'input', label: '输入', color: '#2f6bf2', axis: 'token', strokeWidth: 3 },
+      { key: 'output', label: '输出', color: '#16a34a', axis: 'token', strokeWidth: 3 },
+      { key: 'cache_write', label: '缓存创建', color: '#ea580c', axis: 'token', strokeWidth: 3 },
+      { key: 'cache_read', label: '缓存读取', color: '#00bcd4', axis: 'token', area: true, strokeWidth: 3.8 },
+      { key: 'hit_rate', label: '缓存命中率', color: '#8b5cf6', axis: 'rate', dashed: true, strokeWidth: 3.2 },
     ];
     const active = state.trendActiveDims;
     const activeDimensions = dimensions.filter((dim) => active[dim.key]);
@@ -619,7 +623,11 @@
 
     const styles = getComputedStyle(host);
     const horizontalPadding = parseFloat(styles.paddingLeft || '0') + parseFloat(styles.paddingRight || '0');
-    const width = Math.max(520, Math.round(host.clientWidth - horizontalPadding)), height = 340, left = 65, right = 55, top = 25, bottom = 45;
+    const verticalPadding = parseFloat(styles.paddingTop || '0') + parseFloat(styles.paddingBottom || '0');
+    const width = Math.max(520, Math.round(host.clientWidth - horizontalPadding));
+    const hostAvailableHeight = Math.round(host.clientHeight - verticalPadding);
+    const height = Math.max(410, hostAvailableHeight || 410);
+    const left = 65, right = 55, top = 25, bottom = 45;
     const plotWidth = width - left - right, plotHeight = height - top - bottom, zeroY = top + plotHeight;
 
     const tokenKeys = dimensions.filter((dim) => dim.axis === 'token' && active[dim.key]).map((dim) => dim.key);
@@ -644,6 +652,7 @@
     }).join('');
     const rightGrid = [0, .2, .4, .6, .8, 1].map((ratio) => `<text class="chart-right-label" x="${width-right+10}" y="${top + plotHeight * (1-ratio) + 4}">${Math.round(ratio*100)}%</text>`).join('');
     const labelStep = Math.max(1, Math.floor(points.length / 7));
+    const vGridLines = points.map((point, index) => (index % labelStep === 0 || index === points.length - 1) ? `<line class="chart-vgrid-line" x1="${x(index)}" y1="${top}" x2="${x(index)}" y2="${zeroY}"/>` : '').join('');
     const xLabels = points.map((point, index) => (index % labelStep === 0 || index === points.length - 1) ? `<text class="chart-x-label" x="${x(index)}" y="${zeroY+25}">${esc(formatTime(point.timestamp_ms, state.range))}</text>` : '').join('');
 
     let linePaths = '', areaPaths = '', pointDots = '';
@@ -654,10 +663,10 @@
       if (dimension.area && pathPoints.length > 1) {
         areaPaths += `<path d="${path} L ${pathPoints.at(-1).x} ${zeroY - 1} L ${pathPoints[0].x} ${zeroY - 1} Z" fill="url(#area-gradient-cache)" stroke="none" class="animated-area"/>`;
       }
-      linePaths += `<path d="${path}" fill="none" stroke="${dimension.color}" stroke-width="2.5" ${dimension.dashed ? 'stroke-dasharray="6 6"' : ''} stroke-linecap="round" stroke-linejoin="round" class="animated-line"/>`;
+      linePaths += `<path d="${path}" fill="none" stroke="${dimension.color}" stroke-width="${dimension.strokeWidth || 3}" ${dimension.dashed ? 'stroke-dasharray="6 5"' : ''} stroke-linecap="round" stroke-linejoin="round" class="animated-line"/>`;
       if (points.length <= 60) {
         pathPoints.forEach((pt) => {
-          pointDots += `<circle cx="${pt.x}" cy="${pt.y}" r="3.5" fill="${dimension.color}" stroke="var(--surface)" stroke-width="1.8" class="trend-point-dot"/>`;
+          pointDots += `<circle cx="${pt.x}" cy="${pt.y}" r="4.2" fill="var(--surface)" stroke="${dimension.color}" stroke-width="2.2" class="trend-point-dot"/>`;
         });
       }
     });
@@ -667,12 +676,13 @@
         <rect x="0" y="0" width="${width}" height="${height}" class="chart-clip-rect"/>
       </clipPath>
       <linearGradient id="area-gradient-cache" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#18ad9d" stop-opacity=".24"/>
-        <stop offset="100%" stop-color="#18ad9d" stop-opacity="0"/>
+        <stop offset="0%" stop-color="#00bcd4" stop-opacity=".32"/>
+        <stop offset="65%" stop-color="#00bcd4" stop-opacity=".08"/>
+        <stop offset="100%" stop-color="#00bcd4" stop-opacity="0"/>
       </linearGradient>
     </defs>`;
 
-    host.innerHTML = `<svg class="trend-svg-large" viewBox="0 0 ${width} ${height}" id="trend-svg-element" role="img" aria-label="输入、输出、缓存和缓存命中率趋势">${defs}${leftGrid}${rightGrid}<g clip-path="url(#chart-reveal-clip)">${areaPaths}${linePaths}${pointDots}</g>${xLabels}<line id="crosshair-line" class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${zeroY}" hidden/><g id="active-dots-group"></g></svg><div id="trend-tooltip" class="trend-tooltip-popup" hidden></div>`;
+    host.innerHTML = `<svg class="trend-svg-large" viewBox="0 0 ${width} ${height}" id="trend-svg-element" role="img" aria-label="输入、输出、缓存和缓存命中率趋势">${defs}${vGridLines}${leftGrid}${rightGrid}<g clip-path="url(#chart-reveal-clip)">${areaPaths}${linePaths}${pointDots}</g>${xLabels}<line id="crosshair-line" class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${zeroY}" hidden/><g id="active-dots-group"></g></svg><div id="trend-tooltip" class="trend-tooltip-popup" hidden></div>`;
     const svg = $('#trend-svg-element'), crosshair = $('#crosshair-line'), dots = $('#active-dots-group'), tooltip = $('#trend-tooltip');
     let hoverFrame = 0;
     let lastPointer = null;
@@ -688,7 +698,7 @@
         Math.abs(point.timestamp_ms - targetTimestamp) < Math.abs(points[closestIndex].timestamp_ms - targetTimestamp) ? pointIndex : closestIndex, 0);
       const point = points[index], pointX = x(index);
       crosshair.setAttribute('x1', pointX); crosshair.setAttribute('x2', pointX); crosshair.hidden = false;
-      dots.innerHTML = dimensions.filter((dimension) => active[dimension.key]).map((dimension) => `<circle cx="${pointX}" cy="${dimension.axis === 'rate' ? rateY(point[dimension.key]) : tokenY(point[dimension.key])}" r="5.5" fill="${dimension.color}" stroke="var(--surface)" stroke-width="2.5" class="active-hover-dot"/>`).join('');
+      dots.innerHTML = dimensions.filter((dimension) => active[dimension.key]).map((dimension) => `<circle cx="${pointX}" cy="${dimension.axis === 'rate' ? rateY(point[dimension.key]) : tokenY(point[dimension.key])}" r="6" fill="var(--surface)" stroke="${dimension.color}" stroke-width="3" class="active-hover-dot"/>`).join('');
       const rows = dimensions.filter((dimension) => active[dimension.key]).map((dimension) => {
         const val = point[dimension.key] || 0;
         const formatted = dimension.axis === 'rate' ? formatPercent(val) : formatTokenCompact(val);
@@ -890,13 +900,13 @@
     const costPerMillion = totalTokens > 0 ? (totalCost / totalTokens * 1000000) : 0;
 
     const parts = [
-      { key: 'input', label: 'Input', tokens: regularInput, color: '#326ff5' },
-      { key: 'cache_read', label: 'Cache Read', tokens: cacheRead, color: '#ff7a12' },
-      { key: 'cache_write', label: 'Cache Write', tokens: cacheWrite, color: '#e44e3f' },
-      { key: 'output', label: 'Output', tokens: regularOutput, color: '#20b95a' },
+      { key: 'input', label: '输入', tokens: regularInput, color: '#326ff5' },
+      { key: 'cache_read', label: '缓存读取', tokens: cacheRead, color: '#ff7a12' },
+      { key: 'cache_write', label: '缓存创建', tokens: cacheWrite, color: '#e44e3f' },
+      { key: 'output', label: '输出', tokens: regularOutput, color: '#20b95a' },
     ];
     if (reasoning > 0) {
-      parts.push({ key: 'reasoning', label: 'Reasoning', tokens: reasoning, color: '#a98bff' });
+      parts.push({ key: 'reasoning', label: '推理 / 思考', tokens: reasoning, color: '#a98bff' });
     }
 
     parts.forEach((p, idx) => {
@@ -916,17 +926,17 @@
 
     const summaryStrip = `<div class="token-summary-strip">
       <div class="tss-col">
-        <span class="tss-label">TOTAL TOKENS</span>
+        <span class="tss-label">总 TOKEN</span>
         <strong class="tss-val" id="token-total">${formatCompact(totalTokens)}</strong>
       </div>
       <div class="tss-col">
-        <span class="tss-label">TOTAL COST</span>
+        <span class="tss-label">总费用</span>
         <strong class="tss-val">${formatMoney(totalCost)}</strong>
       </div>
       <div class="tss-col">
-        <span class="tss-label">COST / 1M TOKENS</span>
+        <span class="tss-label">每百万 TOKEN 费率</span>
         <strong class="tss-val">$${costPerMillion.toFixed(4)}</strong>
-        <span class="tss-badge">BLENDED RATE</span>
+        <span class="tss-badge">综合费率</span>
       </div>
     </div>`;
 
@@ -1168,7 +1178,11 @@
   async function loadInterfaces(force, signal, requestID) {
     const data = await cached('/interfaces', force, signal);
     if (requestID !== state.loadRequestID || signal.aborted) return;
+    state.lastInterfacesData = data;
     renderInterfaceSummary(data);
+    renderProviderTokenLegend();
+    renderProviderTokenChart(data.upstreams || []);
+    renderUpstreamLatencyBoard(data.upstreams || []);
     renderAPIKeys(data.api_keys || []);
     renderUpstreams(data.upstreams || []);
   }
@@ -1178,11 +1192,207 @@
     const requests = upstreams.reduce((sum, item) => sum + (item.requests || 0), 0);
     const weightedLatency = requests ? upstreams.reduce((sum, item) => sum + Number(item.avg_latency_ms || 0) * Number(item.requests || 0), 0) / requests : 0;
     const healthy = upstreams.filter((item) => Number(item.success_rate || 0) >= .9).length;
+    const unhealthy = upstreams.length - healthy;
+    const totalTokens = upstreams.reduce((sum, item) => sum + Number(item.total_tokens || 0), 0);
+    const totalCost = upstreams.reduce((sum, item) => sum + Number(item.cost_usd || 0), 0);
+    const overallSuccessRate = requests ? upstreams.reduce((sum, item) => sum + Number(item.successes || 0), 0) / requests : 1;
+
     $('#interface-summary').innerHTML = `
-      <div class="interface-card theme-blue"><div class="ic-head"><span>客户端 Key 凭证</span><div class="ic-icon">${icon('key')}</div></div><strong class="ic-val">${formatInt(apiKeys.length)} <small>个活跃 Key</small></strong></div>
-      <div class="interface-card theme-purple"><div class="ic-head"><span>上游通道集群</span><div class="ic-icon">${icon('database')}</div></div><strong class="ic-val">${formatInt(upstreams.length)} <small>个 Provider</small></strong></div>
-      <div class="interface-card theme-green"><div class="ic-head"><span>接口总请求量</span><div class="ic-icon">${icon('activity')}</div></div><strong class="ic-val">${formatCompact(requests)} <small>次</small></strong></div>
-      <div class="interface-card theme-orange"><div class="ic-head"><span>上游平均响应延迟</span><div class="ic-icon">${icon('clock')}</div></div><strong class="ic-val">${formatDuration(weightedLatency)} <small>${formatInt(healthy)} 个健康</small></strong></div>`;
+      <article class="kpi-panel interface-card theme-blue">
+        <div class="kpi-header"><h3 class="kpi-title">客户端 Key 凭证</h3><div class="kpi-icon-badge theme-blue">${icon('key')}</div></div>
+        <strong class="kpi-main-val">${formatInt(apiKeys.length)} <small style="font-size:12px;font-weight:600;color:var(--muted)">个活跃 Key</small></strong>
+        <div class="kpi-sub-info"><span class="dot-success">全部分组正常</span><span class="plain-item">独立鉴权</span></div>
+      </article>
+      <article class="kpi-panel interface-card theme-purple">
+        <div class="kpi-header"><h3 class="kpi-title">上游通道集群</h3><div class="kpi-icon-badge theme-purple">${icon('database')}</div></div>
+        <strong class="kpi-main-val">${formatInt(upstreams.length)} <small style="font-size:12px;font-weight:600;color:var(--muted)">个 Provider</small></strong>
+        <div class="kpi-sub-info"><span class="dot-success">在线: ${formatInt(healthy)}</span><span class="${unhealthy > 0 ? 'dot-failed' : 'plain-item'}">${unhealthy > 0 ? `异常: ${formatInt(unhealthy)}` : 'SLA 稳定'}</span></div>
+      </article>
+      <article class="kpi-panel interface-card theme-green">
+        <div class="kpi-header"><h3 class="kpi-title">接口总请求量</h3><div class="kpi-icon-badge theme-green">${icon('activity')}</div></div>
+        <strong class="kpi-main-val">${formatCompact(requests)} <small style="font-size:12px;font-weight:600;color:var(--muted)">次</small></strong>
+        <div class="kpi-sub-info"><span class="plain-item">Token: ${formatCompact(totalTokens)}</span><span class="plain-item">成功率: ${formatPercent(overallSuccessRate)}</span></div>
+      </article>
+      <article class="kpi-panel interface-card theme-orange">
+        <div class="kpi-header"><h3 class="kpi-title">上游平均响应延迟</h3><div class="kpi-icon-badge theme-orange">${icon('clock')}</div></div>
+        <strong class="kpi-main-val">${formatDuration(weightedLatency)}</strong>
+        <div class="kpi-sub-info"><span class="dot-success">${formatInt(healthy)} 正常通道</span><span class="plain-item">费用: ${formatMoney(totalCost)}</span></div>
+      </article>`;
+  }
+
+  function renderProviderTokenLegend() {
+    const host = $('#provider-token-legend');
+    if (!host) return;
+    const dims = [
+      { key: 'input', label: '输入', color: '#326ff5' },
+      { key: 'output', label: '输出', color: '#20b95a' },
+      { key: 'cache_read', label: '缓存读取', color: '#ff7a12' },
+      { key: 'cache_write', label: '缓存创建', color: '#e44e3f' },
+      { key: 'reasoning', label: '推理 / 思考', color: '#a98bff' },
+    ];
+    const active = state.providerTokenActiveDims;
+    host.innerHTML = dims.map((d) => `
+      <button type="button" class="legend-chip ${active[d.key] ? 'is-active' : ''}" data-token-dim="${d.key}" aria-pressed="${Boolean(active[d.key])}">
+        <i class="chip-circle" style="background:${d.color}"></i>
+        <span>${d.label}</span>
+      </button>
+    `).join('');
+  }
+
+  function renderProviderTokenChart(upstreams = []) {
+    const host = $('#provider-token-chart');
+    if (!host) return;
+    if (!upstreams.length) return empty(host, '暂无 Provider Token 消耗数据');
+
+    const active = state.providerTokenActiveDims;
+    const anyActive = Object.values(active).some(Boolean);
+    if (!anyActive) {
+      return empty(host, '已取消所有 Token 维度，点击上方图例恢复');
+    }
+
+    const items = upstreams.map((item) => {
+      const regInput = Math.max(0, (item.tokens?.input || 0) - (item.tokens?.cache_read || 0) - (item.tokens?.cache_write || 0));
+      const regOutput = Math.max(0, (item.tokens?.output || 0) - (item.tokens?.reasoning || 0));
+      const cacheRead = item.tokens?.cache_read || 0;
+      const cacheWrite = item.tokens?.cache_write || 0;
+      const reasoning = item.tokens?.reasoning || 0;
+
+      const segs = [
+        { key: 'input', label: '输入', val: regInput, color: '#326ff5' },
+        { key: 'output', label: '输出', val: regOutput, color: '#20b95a' },
+        { key: 'cache_read', label: '缓存读取', val: cacheRead, color: '#ff7a12' },
+        { key: 'cache_write', label: '缓存创建', val: cacheWrite, color: '#e44e3f' },
+        { key: 'reasoning', label: '推理 / 思考', val: reasoning, color: '#a98bff' },
+      ].filter((s) => active[s.key] && s.val > 0);
+
+      const activeTotal = segs.reduce((sum, s) => sum + s.val, 0);
+      return {
+        ...item,
+        segs,
+        activeTotal,
+      };
+    }).filter((item) => item.activeTotal > 0 || item.requests > 0).sort((a, b) => b.activeTotal - a.activeTotal);
+
+    if (!items.length) {
+      return empty(host, '当前选中的 Token 维度在各 Provider 均无消耗');
+    }
+
+    const maxTokens = Math.max(1, ...items.map((i) => i.activeTotal));
+
+    host.innerHTML = `<div class="pt-bars-list">${items.map((item, index) => {
+      const relativeWidth = Math.min(100, Math.max(12, item.activeTotal / maxTokens * 100));
+      const segElements = item.segs.map((seg) => {
+        const pctNum = item.activeTotal > 0 ? (seg.val / item.activeTotal * 100) : 0;
+        const pctStr = pctNum.toFixed(1) + '%';
+        const showLabel = pctNum >= 12;
+        return `<div class="pt-bar-segment" data-provider="${esc(item.name)}" data-dim="${seg.label}" data-val="${formatInt(seg.val)}" data-compact="${formatCompact(seg.val)}" data-pct="${pctStr}" data-color="${seg.color}" style="width:${pctNum.toFixed(2)}%;background:${seg.color};" tabindex="0" role="button" aria-label="${seg.label}: ${formatInt(seg.val)} (${pctStr})">
+          ${showLabel ? `<span class="pt-seg-text">${pctStr}</span>` : ''}
+        </div>`;
+      }).join('');
+
+      return `
+        <div class="pt-row" data-idx="${index}">
+          <div class="pt-row-head">
+            <div class="pt-name-wrap">
+              <span class="pt-name" title="${esc(item.name)}">${esc(item.name || '未识别')}</span>
+              <span class="pt-models-badge">${formatInt(item.models || 1)} 模型</span>
+            </div>
+            <div class="pt-total-wrap">
+              <strong class="pt-total-val">${formatCompact(item.activeTotal)} <small>Token</small></strong>
+              <span class="pt-cost-val">${formatMoney(item.cost_usd)}</span>
+            </div>
+          </div>
+          <div class="pt-track-wrapper" style="width:${relativeWidth.toFixed(1)}%;">
+            <div class="pt-track">${segElements || '<div class="pt-empty-bar"></div>'}</div>
+          </div>
+        </div>
+      `;
+    }).join('')}</div>`;
+  }
+
+  function renderUpstreamLatencyBoard(upstreams = []) {
+    const host = $('#upstream-latency-board');
+    if (!host) return;
+    if (!upstreams.length) return empty(host, '暂无上游延迟与 SLA 数据');
+
+    const ranked = upstreams.slice().sort((a, b) => (a.avg_latency_ms || 0) - (b.avg_latency_ms || 0));
+    const maxLatency = Math.max(1000, ...ranked.map((u) => u.avg_latency_ms || 0));
+
+    host.innerHTML = `<div class="ul-list">${ranked.map((item, idx) => {
+      const latency = Number(item.avg_latency_ms || 0);
+      const rate = Number(item.success_rate || 0);
+      let tierCls = 'is-fast', tierText = '极速响应';
+      if (latency >= 10000) { tierCls = 'is-slow'; tierText = '重载慢速'; }
+      else if (latency >= 2000) { tierCls = 'is-mid'; tierText = '标准响应'; }
+      const widthPct = Math.min(100, Math.max(8, latency / maxLatency * 100));
+
+      return `
+        <div class="ul-item">
+          <div class="ul-head">
+            <div class="ul-name-box">
+              <span class="ul-rank">#${idx + 1}</span>
+              <span class="ul-name" title="${esc(item.name)}">${esc(item.name || '未识别')}</span>
+            </div>
+            <div class="ul-stat-box">
+              <span class="ul-tier ${tierCls}">${tierText}</span>
+              <strong class="ul-lat-val">${formatDuration(latency)}</strong>
+            </div>
+          </div>
+          <div class="ul-bar-bg">
+            <div class="ul-bar-fill ${tierCls}" style="width:${widthPct.toFixed(1)}%;"></div>
+          </div>
+          <div class="ul-foot">
+            <span>请求量: <strong>${formatInt(item.requests)} 次</strong></span>
+            <span class="ul-succ ${rate < 0.9 ? 'is-warn' : ''}">成功率: <strong>${formatPercent(rate)}</strong></span>
+          </div>
+        </div>
+      `;
+    }).join('')}</div>`;
+  }
+
+  function bindProviderTokenInteractivity() {
+    const legend = $('#provider-token-legend');
+    const chart = $('#provider-token-chart');
+    const tooltip = $('#floating-tooltip');
+
+    if (legend) {
+      legend.addEventListener('click', (event) => {
+        const chip = event.target.closest('.legend-chip');
+        if (!chip) return;
+        const dim = chip.dataset.tokenDim;
+        state.providerTokenActiveDims[dim] = !state.providerTokenActiveDims[dim];
+        chip.classList.toggle('is-active', state.providerTokenActiveDims[dim]);
+        chip.setAttribute('aria-pressed', String(state.providerTokenActiveDims[dim]));
+        if (state.lastInterfacesData) {
+          renderProviderTokenChart(state.lastInterfacesData.upstreams || []);
+        }
+      });
+    }
+
+    if (chart) {
+      chart.addEventListener('mouseover', (event) => {
+        const seg = event.target.closest('.pt-bar-segment');
+        if (!seg) return;
+        const { provider, dim, val, compact, pct, color } = seg.dataset;
+        tooltip.innerHTML = `<div class="fgt-title" style="color:${color}">${esc(provider)}</div>
+          <div class="fgt-row"><span>Token 类型</span><strong>${esc(dim)}</strong></div>
+          <div class="fgt-row"><span>Token 消耗</span><strong>${esc(val)} (${esc(compact)})</strong></div>
+          <div class="fgt-row"><span>当前占比</span><strong>${esc(pct)}</strong></div>`;
+        tooltip.classList.add('is-visible');
+      });
+      chart.addEventListener('mousemove', (event) => {
+        positionFloatingTooltip(tooltip, event);
+      });
+      chart.addEventListener('mouseout', (event) => {
+        const seg = event.target.closest('.pt-bar-segment');
+        if (seg && !chart.contains(event.relatedTarget)) {
+          tooltip.classList.remove('is-visible');
+        }
+      });
+      chart.addEventListener('mouseleave', () => {
+        tooltip.classList.remove('is-visible');
+      });
+    }
   }
 
   function renderAPIKeys(items) {
@@ -1203,7 +1413,8 @@
       const percentage = Math.min(100, Number(item.requests || 0) / total * 100);
       const rate = Number(item.success_rate || 0);
       const healthLabel = rate >= .98 ? '正常在线' : rate >= .9 ? '轻微波动' : '需要关注';
-      return `<tr><td><span class="cell-main">${esc(item.name || '未识别')}</span></td><td><span class="status-badge ${rate < .9 ? 'is-failure' : ''}">${healthLabel}</span></td><td>${formatInt(item.models)} 个模型</td><td><div class="progress-cell"><span>${formatInt(item.requests)} <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--purple)"></div></div></div></td><td>${statusBadge(rate)}</td><td>${formatDuration(item.avg_latency_ms)}</td><td>${formatCompact(item.total_tokens)}</td><td><button class="secondary-button compact-btn" data-upstream="${esc(item.key)}">${icon('eye')}详情</button></td></tr>`;
+      const dotCls = rate < .9 ? 'is-err' : rate < .98 ? 'is-warn' : '';
+      return `<tr><td><span class="cell-main">${esc(item.name || '未识别')}</span></td><td><span class="status-badge ${rate < .9 ? 'is-failure' : ''}"><i class="status-pulse-dot ${dotCls}"></i>${healthLabel}</span></td><td>${formatInt(item.models)} 个模型</td><td><div class="progress-cell"><span>${formatInt(item.requests)} <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--purple)"></div></div></div></td><td>${statusBadge(rate)}</td><td>${formatDuration(item.avg_latency_ms)}</td><td>${formatCompact(item.total_tokens)}</td><td><button class="secondary-button compact-btn" data-upstream="${esc(item.key)}">${icon('eye')}详情</button></td></tr>`;
     }).join('');
   }
 
@@ -1266,9 +1477,116 @@
   }
 
   function fillSelect(select, items) {
+    if (!select) return;
     const current = select.value;
     select.innerHTML = '<option value="">全部</option>' + items.map((item) => `<option value="${esc(item.key)}">${esc(item.name)}</option>`).join('');
     select.value = current;
+    syncCustomSelectOptions(select);
+  }
+
+  function initCustomSelects() {
+    $$('#event-filters select').forEach((select) => {
+      if (select.closest('.custom-select-wrapper')) return;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'custom-select-wrapper';
+      select.parentNode.insertBefore(wrapper, select);
+      wrapper.appendChild(select);
+      select.classList.add('sr-only-select');
+
+      const trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'custom-select-trigger';
+      trigger.setAttribute('aria-haspopup', 'listbox');
+      trigger.setAttribute('aria-expanded', 'false');
+      trigger.innerHTML = `<span class="cs-label">${esc(select.options[select.selectedIndex]?.text || '全部')}</span><svg class="cs-arrow" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>`;
+
+      const dropdown = document.createElement('div');
+      dropdown.className = 'custom-select-dropdown';
+      dropdown.setAttribute('role', 'listbox');
+      dropdown.hidden = true;
+
+      wrapper.appendChild(trigger);
+      wrapper.appendChild(dropdown);
+
+      trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = !dropdown.hidden;
+        closeAllCustomSelects();
+        if (!isOpen) {
+          syncCustomSelectOptions(select);
+          dropdown.hidden = false;
+          wrapper.classList.add('is-open');
+          trigger.setAttribute('aria-expanded', 'true');
+        }
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.custom-select-wrapper')) {
+        closeAllCustomSelects();
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeAllCustomSelects();
+      }
+    });
+
+    $('#event-reset')?.addEventListener('click', () => {
+      setTimeout(() => {
+        $$('#event-filters select').forEach((select) => {
+          select.value = '';
+          const wrapper = select.closest('.custom-select-wrapper');
+          if (wrapper) {
+            const label = wrapper.querySelector('.cs-label');
+            if (label) label.textContent = '全部';
+            syncCustomSelectOptions(select);
+          }
+        });
+      }, 0);
+    });
+  }
+
+  function closeAllCustomSelects() {
+    $$('.custom-select-wrapper').forEach((w) => {
+      w.classList.remove('is-open');
+      const dd = w.querySelector('.custom-select-dropdown');
+      if (dd) dd.hidden = true;
+      const trigger = w.querySelector('.custom-select-trigger');
+      if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function syncCustomSelectOptions(select) {
+    const wrapper = select.closest('.custom-select-wrapper');
+    if (!wrapper) return;
+    const dropdown = wrapper.querySelector('.custom-select-dropdown');
+    const label = wrapper.querySelector('.cs-label');
+    if (!dropdown || !label) return;
+
+    const currentVal = select.value;
+    const options = [...select.options];
+    const selectedOption = options.find((o) => o.value === currentVal) || options[0];
+    label.textContent = selectedOption ? selectedOption.text : '全部';
+
+    dropdown.innerHTML = options.map((opt) => `
+      <button type="button" class="custom-select-option ${opt.value === currentVal ? 'is-selected' : ''}" data-value="${esc(opt.value)}">
+        <span>${esc(opt.text)}</span>
+        <svg class="cso-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+      </button>
+    `).join('');
+
+    dropdown.querySelectorAll('.custom-select-option').forEach((optBtn) => {
+      optBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const val = optBtn.dataset.value;
+        select.value = val;
+        label.textContent = optBtn.querySelector('span')?.textContent || '全部';
+        closeAllCustomSelects();
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    });
   }
 
   function eventParams() {

@@ -125,6 +125,27 @@
 
         <section class="page" data-page="interfaces" data-region="interfaces-page">
           <div class="interface-summary" id="interface-summary" data-region="interface-kpis"></div>
+          <div class="interface-analytics-grid">
+            <section class="panel provider-token-panel" data-region="provider-tokens">
+              <div class="panel-head">
+                <div>
+                  <h2>Provider Token 消耗对比</h2>
+                  <p>各上游渠道的输入、输出、缓存与推理 Token 分布构成</p>
+                </div>
+                <div class="provider-token-legend" id="provider-token-legend" aria-label="Token 维度筛选"></div>
+              </div>
+              <div id="provider-token-chart" class="provider-token-chart" aria-label="各 Provider Token 消耗堆叠柱状图"></div>
+            </section>
+            <section class="panel upstream-latency-panel" data-region="upstream-latency">
+              <div class="panel-head">
+                <div>
+                  <h2>上游响应延迟与健康排行</h2>
+                  <p>加权平均响应耗时、SLA 等级与请求成功率</p>
+                </div>
+              </div>
+              <div id="upstream-latency-board" class="upstream-latency-board" aria-label="上游响应延迟与健康排行"></div>
+            </section>
+          </div>
           <section class="table-section" data-region="api-keys"><div class="section-head"><div><h2>客户端 Key 分组</h2><p>匿名客户端调用分组汇总与负载占比</p></div></div><div class="table-wrap"><table class="api-key-table"><caption class="sr-only">客户端 Key 分组</caption><thead><tr><th scope="col">客户端 Key</th><th scope="col">绑定模型</th><th scope="col">调用次数与占比</th><th scope="col">成功率</th><th scope="col">Token</th><th scope="col">预估费用</th></tr></thead><tbody id="api-key-table"></tbody></table></div></section>
           <section class="table-section" data-region="upstreams"><div class="section-head"><div><h2>上游统计</h2><p>匿名 Provider 凭证分组与健康监控</p></div></div><div class="table-wrap"><table class="upstream-table"><caption class="sr-only">上游统计</caption><thead><tr><th scope="col">上游分组名称</th><th scope="col">状态</th><th scope="col">关联模型</th><th scope="col">负载请求占比</th><th scope="col">成功率</th><th scope="col">平均延迟</th><th scope="col">Token</th><th scope="col">操作</th></tr></thead><tbody id="upstream-table"></tbody></table></div></section>
         </section>
