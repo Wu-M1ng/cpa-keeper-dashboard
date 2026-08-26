@@ -489,23 +489,18 @@
     return new Promise((resolve) => requestAnimationFrame(resolve));
   }
 
-  function makeSparkline(points, key, color, id) {
-    const source = points.length ? points : [{ [key]: 0 }, { [key]: 0 }];
-    const count = Math.min(14, source.length);
-    const values = Array.from({ length: count }, (_, index) => {
-      const sourceIndex = count === 1 ? 0 : Math.round(index * (source.length - 1) / (count - 1));
-      return Number(source[sourceIndex]?.[key] || 0);
-    });
-    if (values.length === 1) values.push(values[0]);
-    const width = 240, height = 40;
+  function makeSparkline(trend, key, color, id) {
+    const raw = (trend || []).map((point) => Number(point[key] || 0));
+    const values = raw.length ? raw : [0, 0, 0, 0, 0, 0, 0, 0];
+    const width = 240, height = 36;
     const min = Math.min(...values), max = Math.max(...values);
     const path = values.map((value, index) => {
       const x = index * width / (values.length - 1);
-      const y = height - 4 - (value - min) / (max - min || 1) * (height - 10);
+      const y = height - 2 - (value - min) / (max - min || 1) * (height - 8);
       return `${index ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
     }).join(' ');
     const gradient = `spark-gradient-${id}`;
-    return `<svg class="sparkline-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${gradient}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity=".38"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><path d="${path} L ${width} ${height - 1} L 0 ${height - 1} Z" fill="url(#${gradient})" stroke="none"/><path d="${path}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+    return `<svg class="sparkline-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${gradient}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity=".18"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><path d="${path} L ${width} ${height} L 0 ${height} Z" fill="url(#${gradient})" stroke="none"/><path d="${path}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
 
   function renderKPIs(kpi, trend) {
@@ -718,36 +713,31 @@
     $('#health-failure-count').textContent = formatInt(failures);
     if (!visible.length) return empty(host, '暂无健康数据');
 
+    const SLOTS_PER_ROW = 48;
+    const TOTAL_ROWS = HEALTH_DAYS * 2;
     let rows = $$('.health-row', host);
     let cells = $$('.health-cell', host);
-    if (rows.length !== HEALTH_DAYS || cells.length !== HEALTH_DAYS * HEALTH_SLOTS_PER_DAY) {
+    if (rows.length !== TOTAL_ROWS || cells.length !== HEALTH_DAYS * HEALTH_SLOTS_PER_DAY) {
       const fragment = document.createDocumentFragment();
       for (let dayIndex = 0; dayIndex < HEALTH_DAYS; dayIndex += 1) {
-        const row = document.createElement('div');
-        row.className = 'health-row';
-        const label = document.createElement('span');
-        label.className = 'health-date';
-        const cellHost = document.createElement('div');
-        cellHost.className = 'health-cells';
-        for (let slot = 0; slot < HEALTH_SLOTS_PER_DAY; slot += 1) {
-          const cell = document.createElement('span');
-          cell.className = 'health-cell level-0';
-          cellHost.appendChild(cell);
+        const dayGroup = document.createElement('div');
+        dayGroup.className = 'health-day-group';
+        for (let r = 0; r < 2; r += 1) {
+          const row = document.createElement('div');
+          row.className = 'health-row';
+          for (let slot = 0; slot < SLOTS_PER_ROW; slot += 1) {
+            const cell = document.createElement('span');
+            cell.className = 'health-cell level-0';
+            row.appendChild(cell);
+          }
+          dayGroup.appendChild(row);
         }
-        row.append(label, cellHost);
-        fragment.appendChild(row);
+        fragment.appendChild(dayGroup);
       }
       host.replaceChildren(fragment);
       rows = $$('.health-row', host);
       cells = $$('.health-cell', host);
     }
-
-    rows.forEach((row, dayIndex) => {
-      const first = visible[dayIndex * HEALTH_SLOTS_PER_DAY];
-      const label = first ? formatHealthDate(first.timestamp_ms) : '--';
-      const labelNode = $('.health-date', row);
-      if (labelNode.textContent !== label) labelNode.textContent = label;
-    });
 
     cells.forEach((cell, index) => {
       const point = visible[index] || {};
@@ -816,10 +806,10 @@
     const definitions = [
       ['models', '模型分布'], ['providers', '上游分布'], ['api_keys', '客户端 Key 分组'], ['sources', '渠道来源分布'],
     ];
-    $('#distribution-grid').innerHTML = definitions.map(([key, title]) => distributionCard(title, distributions[key] || [])).join('');
+    $('#distribution-grid').innerHTML = definitions.map(([key, title]) => distributionCard(title, distributions[key] || [], key)).join('');
   }
 
-  function distributionCard(title, values) {
+  function distributionCard(title, values, key) {
     const ranked = values.filter((item) => Number(item.requests || 0) > 0).slice().sort((leftItem, rightItem) => Number(rightItem.requests || 0) - Number(leftItem.requests || 0));
     const total = ranked.reduce((sum, item) => sum + Number(item.requests || 0), 0) || 1;
     const top = ranked.slice(0, 5);
@@ -843,7 +833,7 @@
       const color = item.other ? '#9aa7b8' : COLORS[index % COLORS.length];
       return `<div class="distribution-row" data-idx="${index}" data-name="${esc(item.name || '未识别')}" data-reqs="${formatInt(item.requests)}" data-pct="${percentage}%" data-color="${color}" tabindex="0" role="button" aria-label="${esc(item.name || '未识别')} ${percentage}%"><i style="background:${color}"></i><span title="${esc(item.name)}">${esc(item.name || '未识别')}</span><strong>${formatCompact(item.requests)}</strong></div>`;
     }).join('') : '<div class="cell-sub">暂无数据</div>';
-    return `<article class="distribution-card"><h2>${title}</h2><div class="donut-layout"><div class="donut-wrapper"><svg class="donut" viewBox="0 0 104 104" aria-hidden="true"><circle class="donut-track" cx="52" cy="52" r="38"/>${segments}</svg><div class="donut-center-text"><span class="dct-name">占比率</span><span class="dct-val">TOP 5</span></div></div><div class="distribution-list">${list}</div></div></article>`;
+    return `<article class="distribution-card theme-${key || 'models'}"><h2>${title}</h2><div class="donut-layout"><div class="donut-wrapper"><svg class="donut" viewBox="0 0 104 104" aria-hidden="true"><circle class="donut-track" cx="52" cy="52" r="38"/>${segments}</svg><div class="donut-center-text"><span class="dct-name">占比率</span><span class="dct-val">TOP 5</span></div></div><div class="distribution-list">${list}</div></div></article>`;
   }
 
   function renderTokenComposition(tokens) {
