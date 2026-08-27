@@ -785,7 +785,7 @@
     }
 
     const width = Math.max(600, Math.round(host.clientWidth || 780));
-    const height = 410;
+    const height = 450;
     const left = 76, right = 58, top = 26, bottom = 44;
     const plotWidth = width - left - right, plotHeight = height - top - bottom, zeroY = top + plotHeight;
 

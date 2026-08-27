@@ -479,9 +479,9 @@ main { min-width: 0; padding-bottom: 34px; }
   align-items: start;
 }
 .trend-panel, .health-panel {
-  min-height: 520px;
-  max-height: 520px;
-  height: 520px;
+  min-height: 560px;
+  max-height: 560px;
+  height: 560px;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -490,9 +490,9 @@ main { min-width: 0; padding-bottom: 34px; }
 .trend-panel { justify-content: flex-start; }
 .chart-host-interactive {
   position: relative;
-  height: 425px;
-  max-height: 425px;
-  flex: 0 0 425px;
+  height: 465px;
+  max-height: 465px;
+  flex: 0 0 465px;
   padding: 8px 0 0;
   display: flex;
   flex-direction: column;
@@ -526,7 +526,7 @@ main { min-width: 0; padding-bottom: 34px; }
 .legend-chip:not(.is-active) { opacity: .35; }
 .chip-circle { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
 .chip-dashed { background: transparent !important; border: 1.5px dashed currentColor; }
-.trend-svg-large { width: 100%; height: 100%; max-height: 418px; display: block; overflow: visible; }
+.trend-svg-large { width: 100%; height: 100%; max-height: 458px; display: block; overflow: visible; }
 .trend-svg-large text { stroke: none !important; stroke-width: 0 !important; font-family: var(--font-sans); user-select: none; }
 .chart-grid-line {
   stroke: color-mix(in srgb, var(--line) 75%, transparent);
@@ -1113,6 +1113,7 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
 .event-table th:nth-child(6), .event-table td:nth-child(6) { width: 16%; text-align: center; }
 .event-table th:nth-child(7), .event-table td:nth-child(7) { width: 7%; text-align: center; }
 .event-table th:nth-child(8), .event-table td:nth-child(8) { width: 9%; text-align: center; }
+.event-table th:nth-child(9), .event-table td:nth-child(9) { width: 11%; text-align: center; }
 .event-table td[data-label="状态"] .cell-sub {
   max-width: 140px;
   margin: 3px auto 0;
