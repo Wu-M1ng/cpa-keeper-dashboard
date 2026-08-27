@@ -479,9 +479,9 @@ main { min-width: 0; padding-bottom: 34px; }
   align-items: start;
 }
 .trend-panel, .health-panel {
-  min-height: 560px;
-  max-height: 560px;
-  height: 560px;
+  min-height: 595px;
+  max-height: 595px;
+  height: 595px;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -490,9 +490,9 @@ main { min-width: 0; padding-bottom: 34px; }
 .trend-panel { justify-content: flex-start; }
 .chart-host-interactive {
   position: relative;
-  height: 465px;
-  max-height: 465px;
-  flex: 0 0 465px;
+  height: 500px;
+  max-height: 500px;
+  flex: 0 0 500px;
   padding: 8px 0 0;
   display: flex;
   flex-direction: column;
@@ -526,7 +526,7 @@ main { min-width: 0; padding-bottom: 34px; }
 .legend-chip:not(.is-active) { opacity: .35; }
 .chip-circle { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
 .chip-dashed { background: transparent !important; border: 1.5px dashed currentColor; }
-.trend-svg-large { width: 100%; height: 100%; max-height: 458px; display: block; overflow: visible; }
+.trend-svg-large { width: 100%; height: 100%; max-height: 492px; display: block; overflow: visible; }
 .trend-svg-large text { stroke: none !important; stroke-width: 0 !important; font-family: var(--font-sans); user-select: none; }
 .chart-grid-line {
   stroke: color-mix(in srgb, var(--line) 75%, transparent);
@@ -653,9 +653,9 @@ main { min-width: 0; padding-bottom: 34px; }
 .hsc-stat.is-success .hsc-dot { background: var(--green); box-shadow: 0 0 4px color-mix(in srgb, var(--green) 40%, transparent); }
 .hsc-stat.is-failure .hsc-dot { background: var(--red); box-shadow: 0 0 4px color-mix(in srgb, var(--red) 40%, transparent); }
 
-.health-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; padding: 4px 0; width: 100%; }
-.health-day-group { display: flex; flex-direction: column; gap: 3.5px; width: 100%; }
-.health-row { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3.5px; width: 100%; min-width: 0; }
+.health-grid { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; padding: 2px 0; width: 100%; }
+.health-day-group { display: flex; flex-direction: column; gap: 3px; width: 100%; }
+.health-row { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; width: 100%; min-width: 0; }
 .health-cell { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: 3px; background: var(--surface-inset); cursor: help; transition: transform .14s cubic-bezier(0.16, 1, 0.3, 1), filter .14s ease; }
 .health-cell:hover { z-index: 5; transform: scale(1.45); filter: brightness(1.25); outline: 1.5px solid var(--text); outline-offset: 1px; border-radius: 3.5px; box-shadow: var(--shadow-md); }
 .health-cell.level-0 { background: var(--surface-inset); opacity: 0.8; }
@@ -664,7 +664,7 @@ main { min-width: 0; padding-bottom: 34px; }
 .health-cell.level-3 { background: color-mix(in srgb, var(--yellow) 75%, var(--surface)); }
 .health-cell.level-4 { background: color-mix(in srgb, var(--green) 55%, var(--surface)); }
 .health-cell.level-5 { background: var(--green); }
-.health-scale { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: auto; padding-top: 16px; color: var(--muted); font-size: 10px; }
+.health-scale { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: auto; padding-top: 8px; color: var(--muted); font-size: 10px; }
 .health-scale i { width: 11px; height: 11px; display: block; border-radius: 2.5px; }
 .health-scale em { margin-left: 6px; font-style: normal; }
 .health-scale .level-1 { background: color-mix(in srgb, var(--red) 85%, var(--surface)); }
@@ -1003,7 +1003,7 @@ main { min-width: 0; padding-bottom: 34px; }
 .token-compound-cell:hover, .token-compound-cell:focus-within { border-color: var(--line); background: var(--surface-subtle); }
 .token-cell-lines { min-width: 0; display: grid; gap: 3px; }
 .token-line-primary, .token-line-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.token-badge-in, .token-badge-out, .token-badge-cache { display: inline-flex; align-items: center; gap: 3px; color: var(--muted-strong); font-size: 10px; font-weight: 680; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.token-badge-in, .token-badge-out, .token-badge-cache { display: inline-flex; align-items: center; gap: 3px; color: var(--muted-strong); font-size: 11.5px; font-weight: 720; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .token-badge-in { color: var(--blue); }
 .token-badge-out { color: var(--green); }
 .token-badge-cache { color: var(--teal); }
@@ -1029,8 +1029,8 @@ main { min-width: 0; padding-bottom: 34px; }
 }
 .cost-val-text {
   color: #10b981;
-  font-size: 11.5px;
-  font-weight: 750;
+  font-size: 12.5px;
+  font-weight: 780;
   font-variant-numeric: tabular-nums;
 }
 [data-theme="dark"] .cost-val-text,
@@ -1090,7 +1090,7 @@ main { min-width: 0; padding-bottom: 34px; }
 .table-wrap { width: 100%; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; border-spacing: 0; table-layout: fixed; }
 th, td { padding: 11px 14px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; }
-th { color: var(--muted); background: var(--surface-subtle); font-size: 10px; font-weight: 720; white-space: nowrap; }
+th { color: var(--muted-strong); background: var(--surface-subtle); font-size: 11px; font-weight: 780; white-space: nowrap; }
 td { color: var(--muted-strong); font-size: 11px; }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, transparent); }
@@ -1105,6 +1105,11 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
 
 /* Table Columns Alignment & Exact Widths */
 .event-table { width: 100%; min-width: 960px; }
+.event-table th { font-size: 11px; font-weight: 780; color: var(--muted-strong); }
+.event-table td { font-size: 12.5px; font-weight: 680; color: var(--text); font-variant-numeric: tabular-nums; }
+.event-table .cell-main { font-size: 12.5px; font-weight: 780; color: var(--text); letter-spacing: -0.01em; }
+.event-table .cell-sub { font-size: 11px; font-weight: 550; color: var(--muted); }
+.event-table .status-badge, .event-table .hit-rate-badge { min-height: 24px; padding: 0 9px; font-size: 11px; font-weight: 750; }
 .event-table th:nth-child(1), .event-table td:nth-child(1) { width: 12%; text-align: left; }
 .event-table th:nth-child(2), .event-table td:nth-child(2) { width: 16%; text-align: left; }
 .event-table th:nth-child(3), .event-table td:nth-child(3) { width: 8%; text-align: center; }
@@ -1117,12 +1122,12 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
 .event-table td[data-label="状态"] .cell-sub {
   max-width: 140px;
   margin: 3px auto 0;
-  padding: 1px 4px;
+  padding: 1px 5px;
   border-radius: 3px;
   background: color-mix(in srgb, var(--red) 8%, transparent);
   color: var(--red);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 10.5px;
+  font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1863,8 +1868,16 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
   transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
 }
-.price-table input:hover { border-color: var(--line-strong); background: var(--surface); }
-.price-table input:focus { border-color: var(--blue); background: var(--surface); box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 18%, transparent); outline: none; }
+.price-table { width: 100%; min-width: 820px; }
+.price-table th { font-size: 11px; font-weight: 780; color: var(--muted-strong); }
+.price-table th:first-child, .price-table td:first-child { text-align: left; }
+.price-table th:nth-child(2), .price-table td:nth-child(2) { text-align: center; }
+.price-table th:nth-child(3), .price-table td:nth-child(3) { text-align: center; }
+.price-table th:nth-child(4), .price-table td:nth-child(4) { text-align: center; }
+.price-table th:nth-child(5), .price-table td:nth-child(5) { text-align: center; }
+.price-table th:nth-child(6), .price-table td:nth-child(6) { text-align: center; }
+.price-table th:nth-child(7), .price-table td:nth-child(7) { text-align: center; }
+.price-table td[data-label] input[type="number"] { text-align: center; }
 .price-table td:last-child { width: 72px; text-align: center; }
 .price-table .icon-button {
   width: 30px;
