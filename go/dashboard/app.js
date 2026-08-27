@@ -45,7 +45,7 @@
   const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
   const number = new Intl.NumberFormat('zh-CN');
   const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
-  const money = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 2, maximumFractionDigits: 4 });
   const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: CHINA_TIME_ZONE });
   const healthDateFormatter = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', timeZone: CHINA_TIME_ZONE });
   const healthDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: CHINA_TIME_ZONE });
@@ -785,7 +785,7 @@
     }
 
     const width = Math.max(600, Math.round(host.clientWidth || 780));
-    const height = 340;
+    const height = 410;
     const left = 76, right = 58, top = 26, bottom = 44;
     const plotWidth = width - left - right, plotHeight = height - top - bottom, zeroY = top + plotHeight;
 
@@ -1761,6 +1761,7 @@
       $('#detail-title').textContent = data.name || key;
       const summary = data.summary || {};
       const models = data.models || [];
+      const events = data.recent_events || [];
       const recentEventsHtml = events.map((event) => {
         const errText = event.failed ? formatErrorMessage(event.failure, event.status_code) : '';
         const titleText = errText ? `${event.model} (${errText})` : event.model;
@@ -2212,7 +2213,7 @@
     const modelCellHtml = `
       <td>
         <div class="model-input-compound">
-          <input list="model-name-datalist" data-price-field="model" type="text" placeholder="选择已有模型或输入自定义..." value="${esc(price.model ?? '')}" autocomplete="off">
+          <input data-price-field="model" type="text" placeholder="选择已有模型或输入自定义..." value="${esc(price.model ?? '')}" autocomplete="off">
           <button type="button" class="model-picker-btn" title="选择已产生请求的模型" aria-label="快捷选择模型">
             <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
