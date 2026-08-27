@@ -250,23 +250,181 @@
     grid.addEventListener('mouseleave', () => tooltip.classList.remove('is-visible'));
   }
 
+  let tooltipRafId = 0;
   function positionFloatingTooltip(tooltip, event) {
-    const halfWidth = Math.max(95, tooltip.offsetWidth / 2);
-    const left = Math.max(halfWidth + 12, Math.min(window.innerWidth - halfWidth - 12, event.clientX));
-    tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${event.clientY}px`;
-    tooltip.style.transform = event.clientY < tooltip.offsetHeight + 28
-      ? 'translate(-50%, 18px)'
-      : 'translate(-50%, -100%) translateY(-14px)';
+    if (!event) return;
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+    cancelAnimationFrame(tooltipRafId);
+    tooltipRafId = requestAnimationFrame(() => {
+      const halfWidth = 110;
+      const left = Math.max(halfWidth + 12, Math.min(window.innerWidth - halfWidth - 12, clientX));
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${clientY}px`;
+      tooltip.style.transform = clientY < 120
+        ? 'translate(-50%, 18px)'
+        : 'translate(-50%, -100%) translateY(-14px)';
+    });
   }
 
   function bindSettings() {
     $('#add-price').addEventListener('click', () => appendPriceRow({}));
     $('#save-prices').addEventListener('click', savePrices);
+    $('#export-prices-btn').addEventListener('click', exportPricesJSON);
+    $('#autofill-prices-btn').addEventListener('click', autoFillUnpricedModels);
+
+    // Search filter
+    $('#price-search').addEventListener('input', (e) => applyPriceFilter(e.target.value));
+
+    // Model Picker Dropdown
+    let currentPickerRow = null;
+    const pickerDropdown = $('#model-picker-dropdown');
+
+    function closeModelPicker() {
+      if (pickerDropdown) {
+        pickerDropdown.classList.remove('is-open');
+        currentPickerRow = null;
+      }
+    }
+
+    // Table click actions (picker, clone, remove)
     $('#price-table').addEventListener('click', (event) => {
-      const button = event.target.closest('[data-remove-price]');
-      if (button) button.closest('tr').remove();
+      const pickerBtn = event.target.closest('.model-picker-btn');
+      if (pickerBtn) {
+        event.stopPropagation();
+        const row = pickerBtn.closest('tr');
+        if (currentPickerRow === row && pickerDropdown.classList.contains('is-open')) {
+          closeModelPicker();
+          return;
+        }
+        currentPickerRow = row;
+        const requested = getRequestedModelsList();
+        
+        let html = '';
+        if (requested.length > 0) {
+          html += `<div class="mpd-section-title"><span>⚡ 已产生调用的模型</span><span class="mpd-count-tag">${requested.length} 个</span></div>`;
+          requested.forEach((item) => {
+            html += `
+              <button type="button" class="mpd-item" data-select-model="${esc(item.name)}">
+                <span class="mpd-item-name">${esc(item.name)}</span>
+                <span class="mpd-item-badge">${item.requests ? `${formatInt(item.requests)} 次请求` : '已调用'}</span>
+              </button>
+            `;
+          });
+        } else {
+          html += `<div class="mpd-section-title"><span>⚡ 已产生调用的模型</span></div><div class="cell-sub" style="padding:8px 10px">暂无请求记录，可直接在输入框中自定义输入</div>`;
+        }
+
+        pickerDropdown.innerHTML = html;
+        
+        const rect = pickerBtn.getBoundingClientRect();
+        const dropdownWidth = Math.min(320, window.innerWidth - 24);
+        let left = rect.left + rect.width - dropdownWidth;
+        if (left < 12) left = 12;
+        let top = rect.bottom + 6;
+        if (top + 360 > window.innerHeight && rect.top > 360) {
+          top = rect.top - 366;
+        }
+        
+        pickerDropdown.style.left = `${left}px`;
+        pickerDropdown.style.top = `${top}px`;
+        pickerDropdown.style.width = `${dropdownWidth}px`;
+        pickerDropdown.classList.add('is-open');
+        return;
+      }
+
+      const removeBtn = event.target.closest('[data-remove-price]');
+      if (removeBtn) {
+        removeBtn.closest('tr').remove();
+        return;
+      }
+      const cloneBtn = event.target.closest('[data-clone-price]');
+      if (cloneBtn) {
+        const row = cloneBtn.closest('tr');
+        const price = {};
+        $$('[data-price-field]', row).forEach((input) => {
+          price[input.dataset.priceField] = input.dataset.priceField === 'model' ? (input.value ? `${input.value}-copy` : '') : input.value;
+        });
+        appendPriceRow(price);
+        toast('已复制模型行');
+      }
     });
+
+    pickerDropdown.addEventListener('click', (event) => {
+      const itemBtn = event.target.closest('[data-select-model]');
+      if (itemBtn && currentPickerRow) {
+        const modelName = itemBtn.dataset.selectModel;
+        applyModelToRow(currentPickerRow, modelName);
+        closeModelPicker();
+        toast(`已选择模型 ${modelName}`);
+      }
+    });
+
+    document.addEventListener('click', (event) => {
+      if (pickerDropdown.classList.contains('is-open') && !pickerDropdown.contains(event.target) && !event.target.closest('.model-picker-btn')) {
+        closeModelPicker();
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && pickerDropdown.classList.contains('is-open')) {
+        closeModelPicker();
+      }
+    });
+
+    // Import Dialog
+    const importDialog = $('#price-import-dialog');
+    const importTextarea = $('#price-import-textarea');
+    const importStatus = $('#price-import-status');
+    const importFileInput = $('#price-file-input');
+    const importFileLabel = $('#price-file-label');
+
+    $('#import-prices-btn').addEventListener('click', () => {
+      importTextarea.value = '';
+      importStatus.hidden = true;
+      importFileLabel.textContent = '未选择文件';
+      importDialog.showModal();
+    });
+    $('#price-import-close').addEventListener('click', () => importDialog.close());
+    $('#price-import-cancel').addEventListener('click', () => importDialog.close());
+    $('#price-upload-btn').addEventListener('click', () => importFileInput.click());
+    importFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      importFileLabel.textContent = file.name;
+      const text = await file.text();
+      importTextarea.value = text;
+      e.target.value = '';
+    });
+    $('#price-import-submit').addEventListener('click', () => {
+      const text = importTextarea.value.trim();
+      if (!text) {
+        importStatus.textContent = '请先粘贴价格数据或选择文件';
+        importStatus.className = 'import-status-text is-error';
+        importStatus.hidden = false;
+        return;
+      }
+      const parsed = parseImportedPrices(text);
+      if (!parsed.length) {
+        importStatus.textContent = '未能解析出任何有效的模型价格，请检查数据格式';
+        importStatus.className = 'import-status-text is-error';
+        importStatus.hidden = false;
+        return;
+      }
+
+      const mode = $('input[name="price-import-mode"]:checked')?.value || 'merge';
+      if (mode === 'replace') {
+        renderPrices(parsed);
+      } else {
+        const existing = getTablePrices();
+        const map = new Map(existing.map((item) => [item.model.toLowerCase(), item]));
+        parsed.forEach((item) => map.set(item.model.toLowerCase(), item));
+        renderPrices([...map.values()]);
+      }
+      importDialog.close();
+      toast(`成功导入 ${parsed.length} 个模型价格（请点击保存生效）`);
+    });
+
     $('#storage-settings').addEventListener('submit', saveStorageSettings);
     $('#backup-export').addEventListener('click', () => download(`${API_ROOT}/backup`, 'usage-keeper-backup.json'));
     $('#backup-import').addEventListener('click', () => $('#backup-file').click());
@@ -627,7 +785,7 @@
     }
 
     const width = Math.max(600, Math.round(host.clientWidth || 780));
-    const height = Math.max(340, Math.round(host.clientHeight || 350));
+    const height = 340;
     const left = 76, right = 58, top = 26, bottom = 44;
     const plotWidth = width - left - right, plotHeight = height - top - bottom, zeroY = top + plotHeight;
 
@@ -926,6 +1084,18 @@
     const reasoning = tokens.reasoning || 0;
     const totalTokens = tokens.total || (regularInput + regularOutput + cacheRead + cacheWrite + reasoning) || 0;
     const totalCost = (models || []).reduce((sum, m) => sum + Number(m.cost_usd || 0), 0) || state.summary?.kpi?.cost_usd || 0;
+
+    let savedCost = Number(state.summary?.kpi?.saved_cost_usd || 0);
+    if (!savedCost && (models || []).length) {
+      savedCost = (models || []).reduce((sum, m) => sum + Number(m.saved_cost_usd || 0), 0);
+    }
+    if (!savedCost && state.summary?.trend?.length) {
+      savedCost = state.summary.trend.reduce((sum, p) => sum + Math.max(0, Number(p.standard_cost || 0) - Number(p.actual_cost || 0)), 0);
+    }
+
+    const standardCost = totalCost + savedCost;
+    const savingPct = standardCost > 0 ? ((savedCost / standardCost) * 100).toFixed(1) : '0.0';
+
     const sumTokens = (regularInput + regularOutput + cacheRead + cacheWrite + reasoning) || totalTokens || 1;
     const costPerMillion = totalTokens > 0 ? (totalCost / totalTokens * 1000000) : 0;
 
@@ -946,6 +1116,21 @@
       p.cost = totalCost * (p.tokens / sumTokens);
     });
 
+    const savingsBanner = `
+      <div class="cache-saving-hero" title="基于模型输入单价与缓存读取单价差额计算得出的 Prompt 缓存直接经济节省">
+        <div class="csh-left">
+          <span class="csh-icon">💰</span>
+          <div class="csh-text">
+            <span class="csh-title">Prompt 缓存已节省成本</span>
+            <span class="csh-desc">相比未经缓存的全量输入标准计费</span>
+          </div>
+        </div>
+        <div class="csh-right">
+          <strong class="csh-val">${formatMoney(savedCost)}</strong>
+          <span class="csh-badge">已降低 ${savingPct}% 成本</span>
+        </div>
+      </div>`;
+
     const stackSegments = parts.map((part) => {
       if (part.pctNum <= 0) return '';
       const showText = part.pctNum >= 5;
@@ -960,8 +1145,13 @@
         <strong class="tss-val" id="token-total">${formatCompact(totalTokens)}</strong>
       </div>
       <div class="tss-col">
-        <span class="tss-label">总费用</span>
+        <span class="tss-label">实际总费用</span>
         <strong class="tss-val">${formatMoney(totalCost)}</strong>
+      </div>
+      <div class="tss-col">
+        <span class="tss-label">缓存已节省</span>
+        <strong class="tss-val tss-val-saved">${formatMoney(savedCost)}</strong>
+        <span class="tss-badge tss-badge-saved">省 ${savingPct}%</span>
       </div>
       <div class="tss-col">
         <span class="tss-label">每百万 TOKEN 费率</span>
@@ -984,6 +1174,7 @@
     </div>`;
 
     $('#token-composition').innerHTML = `
+      ${savingsBanner}
       <div class="token-stack">${stackSegments}</div>
       ${summaryStrip}
       ${breakdownCards}
@@ -1002,7 +1193,14 @@
     const tooltip = $('#floating-tooltip');
     if (!grid) return;
 
+    let activeItem = null;
+
     const activate = (item, event) => {
+      if (activeItem === item) {
+        if (event?.clientX != null) positionFloatingTooltip(tooltip, event);
+        return;
+      }
+      activeItem = item;
       const card = item?.closest('.distribution-card');
       if (!card) return;
       const { idx, name, reqs, pct, color } = item.dataset;
@@ -1025,7 +1223,9 @@
         positionFloatingTooltip(tooltip, { clientX: rect.left + rect.width / 2, clientY: rect.top });
       }
     };
+
     const clear = (card) => {
+      activeItem = null;
       if (!card) return;
       card.classList.remove('has-hover');
       card.querySelectorAll('.donut-segment, .distribution-row').forEach((el) => el.classList.remove('is-active'));
@@ -1039,22 +1239,36 @@
       const item = event.target.closest('.donut-segment, .distribution-row');
       if (item) activate(item, event);
     });
+
     grid.addEventListener('mousemove', (event) => {
-      if (tooltip.classList.contains('is-visible')) positionFloatingTooltip(tooltip, event);
+      if (activeItem && tooltip.classList.contains('is-visible')) {
+        positionFloatingTooltip(tooltip, event);
+      }
     });
 
     grid.addEventListener('mouseout', (event) => {
+      const item = event.target.closest('.donut-segment, .distribution-row');
       const card = event.target.closest('.distribution-card');
+      if (item && !item.contains(event.relatedTarget)) {
+        const nextItem = event.relatedTarget?.closest('.donut-segment, .distribution-row');
+        if (!nextItem) {
+          activeItem = null;
+          tooltip.classList.remove('is-visible');
+        }
+      }
       if (card && !card.contains(event.relatedTarget)) clear(card);
     });
+
     grid.addEventListener('focusin', (event) => {
       const item = event.target.closest('.donut-segment, .distribution-row');
       if (item) activate(item);
     });
+
     grid.addEventListener('focusout', (event) => {
       const card = event.target.closest('.distribution-card');
       if (card && !card.contains(event.relatedTarget)) clear(card);
     });
+
     grid.addEventListener('keydown', (event) => {
       const item = event.target.closest('.donut-segment, .distribution-row');
       if (!item) return;
@@ -1081,10 +1295,39 @@
         <div class="fgt-footer"><span>总 Token</span><strong class="fgt-total-val">${esc(total)}</strong></div>`;
     }
 
+    function populateCostTooltip(trigger) {
+      const {
+        totalCost, inCost, outCost, inPrice, outPrice,
+        cacheReadCost, cacheWriteCost, reasoningCost
+      } = trigger.dataset;
+      tooltip.innerHTML = `<div class="fgt-title">费用明细</div>
+        <div class="fgt-body">
+          <div class="fgt-row"><span>输入费用</span><strong>${esc(inCost || '$0.000000')}</strong></div>
+          <div class="fgt-row"><span>输出费用</span><strong>${esc(outCost || '$0.000000')}</strong></div>
+          <div class="fgt-row"><span>输入单价</span><strong class="cost-unit-price-in">${esc(inPrice || '$0.0000')} / 1M Token</strong></div>
+          <div class="fgt-row"><span>输出单价</span><strong class="cost-unit-price-out">${esc(outPrice || '$0.0000')} / 1M Token</strong></div>
+          ${cacheReadCost && cacheReadCost !== '$0.000000' && cacheReadCost !== '$0.00' ? `<div class="fgt-row"><span>缓存读取费用</span><strong>${esc(cacheReadCost)}</strong></div>` : ''}
+          ${cacheWriteCost && cacheWriteCost !== '$0.000000' && cacheWriteCost !== '$0.00' ? `<div class="fgt-row"><span>缓存创建费用</span><strong>${esc(cacheWriteCost)}</strong></div>` : ''}
+          ${reasoningCost && reasoningCost !== '$0.000000' && reasoningCost !== '$0.00' ? `<div class="fgt-row"><span>思考/推理费用</span><strong>${esc(reasoningCost)}</strong></div>` : ''}
+        </div>
+        <div class="fgt-footer"><span>总费用</span><strong class="fgt-total-cost">${esc(totalCost || '$0.000000')}</strong></div>`;
+    }
+
+    function renderTooltipForTrigger(trigger) {
+      if (trigger.dataset.tooltipType === 'cost-detail') {
+        populateCostTooltip(trigger);
+      } else {
+        populateTokenTooltip(trigger);
+      }
+    }
+
+    let activeTokenItem = null;
     if (container) {
       container.addEventListener('mouseover', (event) => {
         const item = event.target.closest('.token-stack-segment, .token-breakdown-card');
         if (!item || pinnedTrigger) return;
+        if (activeTokenItem === item) return;
+        activeTokenItem = item;
         const { idx, name, val, compact, pct, color, cost } = item.dataset;
         container.classList.add('has-hover');
         container.querySelectorAll('.token-stack-segment, .token-breakdown-card').forEach((el) => {
@@ -1097,10 +1340,11 @@
         tooltip.classList.add('is-visible');
       });
       container.addEventListener('mousemove', (event) => {
-        if (!pinnedTrigger) positionFloatingTooltip(tooltip, event);
+        if (!pinnedTrigger && activeTokenItem) positionFloatingTooltip(tooltip, event);
       });
       container.addEventListener('mouseout', (event) => {
         if (pinnedTrigger || container.contains(event.relatedTarget)) return;
+        activeTokenItem = null;
         container.classList.remove('has-hover');
         container.querySelectorAll('.token-stack-segment, .token-breakdown-card').forEach((el) => el.classList.remove('is-active'));
         tooltip.classList.remove('is-visible');
@@ -1109,50 +1353,87 @@
 
     document.addEventListener('mouseover', (event) => {
       if (pinnedTrigger) return;
-      const trigger = event.target.closest('[data-tooltip-type="token-detail"]');
+      const trigger = event.target.closest('[data-tooltip-type="token-detail"], [data-tooltip-type="cost-detail"]');
       if (!trigger) return;
-      populateTokenTooltip(trigger);
+      renderTooltipForTrigger(trigger);
       tooltip.classList.add('is-visible');
     });
 
     document.addEventListener('mousemove', (event) => {
       if (pinnedTrigger || !tooltip.classList.contains('is-visible')) return;
-      const trigger = event.target.closest('[data-tooltip-type="token-detail"]');
+      const trigger = event.target.closest('[data-tooltip-type="token-detail"], [data-tooltip-type="cost-detail"]');
       if (trigger) positionFloatingTooltip(tooltip, event);
     });
 
     document.addEventListener('mouseout', (event) => {
       if (pinnedTrigger) return;
-      const trigger = event.target.closest('[data-tooltip-type="token-detail"]');
+      const trigger = event.target.closest('[data-tooltip-type="token-detail"], [data-tooltip-type="cost-detail"]');
       if (trigger && !trigger.contains(event.relatedTarget)) {
         tooltip.classList.remove('is-visible');
       }
     });
 
     document.addEventListener('click', (event) => {
-      const btn = event.target.closest('.token-info-trigger');
-      const trigger = event.target.closest('[data-tooltip-type="token-detail"]');
+      const btn = event.target.closest('.token-info-trigger, .cost-info-trigger');
+      const trigger = event.target.closest('[data-tooltip-type="token-detail"], [data-tooltip-type="cost-detail"]');
       if (btn || trigger) {
-        const targetCell = btn ? btn.closest('[data-tooltip-type="token-detail"]') : trigger;
+        const targetCell = btn ? btn.closest('[data-tooltip-type="token-detail"], [data-tooltip-type="cost-detail"]') : trigger;
         if (pinnedTrigger === targetCell) {
           pinnedTrigger = null;
-          $$('.token-info-trigger.is-pinned').forEach((el) => el.classList.remove('is-pinned'));
+          $$('.token-info-trigger.is-pinned, .cost-info-trigger.is-pinned').forEach((el) => el.classList.remove('is-pinned'));
           tooltip.classList.remove('is-visible');
         } else {
           pinnedTrigger = targetCell;
-          $$('.token-info-trigger.is-pinned').forEach((el) => el.classList.remove('is-pinned'));
-          const btnEl = targetCell?.querySelector('.token-info-trigger');
+          $$('.token-info-trigger.is-pinned, .cost-info-trigger.is-pinned').forEach((el) => el.classList.remove('is-pinned'));
+          const btnEl = targetCell?.querySelector('.token-info-trigger, .cost-info-trigger');
           if (btnEl) btnEl.classList.add('is-pinned');
-          populateTokenTooltip(targetCell);
+          renderTooltipForTrigger(targetCell);
           positionFloatingTooltip(tooltip, event);
           tooltip.classList.add('is-visible');
         }
       } else if (pinnedTrigger && !tooltip.contains(event.target)) {
         pinnedTrigger = null;
-        $$('.token-info-trigger.is-pinned').forEach((el) => el.classList.remove('is-pinned'));
+        $$('.token-info-trigger.is-pinned, .cost-info-trigger.is-pinned').forEach((el) => el.classList.remove('is-pinned'));
         tooltip.classList.remove('is-visible');
       }
     });
+  }
+
+  function formatUnitPrice(val) {
+    const num = Number(val || 0);
+    return `$${num.toFixed(4)}`;
+  }
+
+  function formatCostDetail(val) {
+    const num = Number(val || 0);
+    return `$${num.toFixed(6)}`;
+  }
+
+  function renderCostCell(event) {
+    const costUSD = Number(event.cost_usd || 0);
+    const inCost = Number(event.input_cost || 0);
+    const outCost = Number(event.output_cost || 0);
+    const inPrice = Number(event.input_price || 0);
+    const outPrice = Number(event.output_price || 0);
+    const cacheReadCost = Number(event.cache_read_cost || 0);
+    const cacheWriteCost = Number(event.cache_write_cost || 0);
+    const reasoningCost = Number(event.reasoning_cost || 0);
+    const formattedTotal = formatCostDetail(costUSD);
+
+    return `<div class="cost-compound-cell" data-tooltip-type="cost-detail"
+      data-total-cost="${formattedTotal}"
+      data-in-cost="${formatCostDetail(inCost)}"
+      data-out-cost="${formatCostDetail(outCost)}"
+      data-in-price="${formatUnitPrice(inPrice)}"
+      data-out-price="${formatUnitPrice(outPrice)}"
+      data-cache-read-cost="${formatCostDetail(cacheReadCost)}"
+      data-cache-write-cost="${formatCostDetail(cacheWriteCost)}"
+      data-reasoning-cost="${formatCostDetail(reasoningCost)}">
+      <span class="cost-val-text">${formattedTotal}</span>
+      <button type="button" class="cost-info-trigger" title="点击展开/固定费用明细" aria-label="查看费用明细">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+      </button>
+    </div>`;
   }
 
   function renderTokenCell(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens = 0, reasoningTokens = 0, totalTokens = 0) {
@@ -1432,7 +1713,14 @@
     const total = items.reduce((sum, item) => sum + Number(item.requests || 0), 0) || 1;
     body.innerHTML = items.map((item) => {
       const percentage = Math.min(100, Number(item.requests || 0) / total * 100);
-      return `<tr><td><span class="cell-main" style="font-family:monospace">${esc(item.name || '未识别')}</span></td><td>${formatInt(item.models)} 个模型</td><td><div class="progress-cell"><span>${formatInt(item.requests)} <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--blue)"></div></div></div></td><td>${statusBadge(item.success_rate)}</td><td>${formatCompact(item.total_tokens)}</td><td><strong>${formatMoney(item.cost_usd)}</strong></td></tr>`;
+      return `<tr>
+        <td><strong class="cell-main" title="${esc(item.name || '未识别')}">${esc(item.name || '未识别')}</strong></td>
+        <td><strong>${formatInt(item.models)} 个模型</strong></td>
+        <td><div class="progress-cell"><span><strong>${formatInt(item.requests)}</strong> <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--blue)"></div></div></div></td>
+        <td>${statusBadge(item.success_rate)}</td>
+        <td title="${formatInt(item.total_tokens)}"><strong>${formatTokenCompact(item.total_tokens)}</strong></td>
+        <td><strong>${formatMoney(item.cost_usd)}</strong></td>
+      </tr>`;
     }).join('');
   }
 
@@ -1445,7 +1733,16 @@
       const rate = Number(item.success_rate || 0);
       const healthLabel = rate >= .98 ? '正常在线' : rate >= .9 ? '轻微波动' : '需要关注';
       const dotCls = rate < .9 ? 'is-err' : rate < .98 ? 'is-warn' : '';
-      return `<tr><td><span class="cell-main">${esc(item.name || '未识别')}</span></td><td><span class="status-badge ${rate < .9 ? 'is-failure' : ''}"><i class="status-pulse-dot ${dotCls}"></i>${healthLabel}</span></td><td>${formatInt(item.models)} 个模型</td><td><div class="progress-cell"><span>${formatInt(item.requests)} <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--purple)"></div></div></div></td><td>${statusBadge(rate)}</td><td>${formatDuration(item.avg_latency_ms)}</td><td>${formatCompact(item.total_tokens)}</td><td><button class="secondary-button compact-btn" data-upstream="${esc(item.key)}">${icon('eye')}详情</button></td></tr>`;
+      return `<tr>
+        <td><strong class="cell-main" title="${esc(item.name || '未识别')}">${esc(item.name || '未识别')}</strong></td>
+        <td><span class="status-badge ${rate < .9 ? 'is-failure' : ''}"><i class="status-pulse-dot ${dotCls}"></i>${healthLabel}</span></td>
+        <td><strong>${formatInt(item.models)} 个模型</strong></td>
+        <td><div class="progress-cell"><span><strong>${formatInt(item.requests)}</strong> <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--purple)"></div></div></div></td>
+        <td>${statusBadge(rate)}</td>
+        <td><strong>${formatDuration(item.avg_latency_ms)}</strong></td>
+        <td title="${formatInt(item.total_tokens)}"><strong>${formatTokenCompact(item.total_tokens)}</strong></td>
+        <td><button class="secondary-button compact-btn" data-upstream="${esc(item.key)}">${icon('eye')}详情</button></td>
+      </tr>`;
     }).join('');
   }
 
@@ -1464,8 +1761,13 @@
       $('#detail-title').textContent = data.name || key;
       const summary = data.summary || {};
       const models = data.models || [];
-      const events = data.recent_events || [];
-      $('#detail-content').innerHTML = `<div class="detail-kpis">${metric('请求', formatInt(summary.requests))}${metric('成功率', formatPercent(summary.success_rate))}${metric('Token', formatCompact(summary.total_tokens))}${metric('平均延迟', formatDuration(summary.avg_latency_ms))}</div><section class="detail-section"><h3>模型</h3>${models.map((item) => `<div class="distribution-row"><i style="background:var(--accent)"></i><span>${esc(item.name)}</span><strong>${formatInt(item.requests)}</strong></div>`).join('') || '<span class="cell-sub">暂无数据</span>'}</section><section class="detail-section"><h3>近期事件</h3>${events.map((event) => `<div class="distribution-row"><i style="background:${event.failed ? 'var(--red)' : 'var(--green)'}"></i><span>${esc(event.model)} · ${esc(formatDateTime(event.timestamp_ms))}</span><strong>${formatDuration(event.latency_ms)}</strong></div>`).join('') || '<span class="cell-sub">暂无数据</span>'}</section>`;
+      const recentEventsHtml = events.map((event) => {
+        const errText = event.failed ? formatErrorMessage(event.failure, event.status_code) : '';
+        const titleText = errText ? `${event.model} (${errText})` : event.model;
+        return `<div class="distribution-row" title="${esc(titleText)}"><i style="background:${event.failed ? 'var(--red)' : 'var(--green)'}"></i><span>${esc(event.model)} · ${esc(formatDateTime(event.timestamp_ms))}${errText ? ` <small style="color:var(--red)">(${esc(errText)})</small>` : ''}</span><strong>${formatDuration(event.latency_ms)}</strong></div>`;
+      }).join('') || '<span class="cell-sub">暂无数据</span>';
+
+      $('#detail-content').innerHTML = `<div class="detail-kpis">${metric('请求', formatInt(summary.requests))}${metric('成功率', formatPercent(summary.success_rate))}${metric('Token', formatCompact(summary.total_tokens))}${metric('平均延迟', formatDuration(summary.avg_latency_ms))}</div><section class="detail-section"><h3>模型</h3>${models.map((item) => `<div class="distribution-row"><i style="background:var(--accent)"></i><span>${esc(item.name)}</span><strong>${formatInt(item.requests)}</strong></div>`).join('') || '<span class="cell-sub">暂无数据</span>'}</section><section class="detail-section"><h3>近期事件</h3>${recentEventsHtml}</section>`;
     } catch (error) {
       $('#detail-title').textContent = '加载失败';
       $('#detail-content').textContent = error.message;
@@ -1624,13 +1926,93 @@
     return new URLSearchParams({ range: state.range, page: String(state.eventPage), page_size: '25', ...state.eventFilters });
   }
 
+  function formatTPS(outputTokens, latencyMs, ttftMs) {
+    const tokens = Math.max(0, Number(outputTokens || 0));
+    const latency = Math.max(0, Number(latencyMs || 0));
+    const ttft = Math.max(0, Number(ttftMs || 0));
+    if (tokens <= 0 || latency <= 0) return '--';
+
+    let durationSec = (ttft > 0 && latency > ttft) ? (latency - ttft) / 1000 : latency / 1000;
+    if (durationSec < 0.02) durationSec = 0.02;
+
+    const tps = tokens / durationSec;
+    if (!isFinite(tps) || tps <= 0) return '--';
+    return tps >= 100 ? `${tps.toFixed(0)} t/s` : `${tps.toFixed(1)} t/s`;
+  }
+
+  function unescapeHTML(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&#34;|&quot;/g, '"')
+      .replace(/&#39;|&apos;/g, "'")
+      .replace(/&#47;/g, '/')
+      .replace(/&#92;/g, '\\')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+  }
+
+  function formatErrorMessage(raw, statusCode) {
+    let text = unescapeHTML(String(raw || '')).trim();
+    if (!text) {
+      if (!statusCode || statusCode === 200) return '';
+      const codeMap = {
+        400: '参数错误 (Bad Request)',
+        401: '鉴权失败 (Unauthorized)',
+        403: '拒绝访问 (Forbidden)',
+        404: '模型不存在 (Not Found)',
+        429: '上游限流 (Rate Limit)',
+        500: '服务错误 (Internal Error)',
+        502: '网关异常 (Bad Gateway)',
+        503: '服务过载 (Service Unavailable)',
+        504: '网关超时 (Gateway Timeout)',
+      };
+      return codeMap[statusCode] || `HTTP ${statusCode}`;
+    }
+
+    if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+      try {
+        const obj = JSON.parse(text);
+        if (obj && typeof obj === 'object') {
+          if (obj.error) {
+            if (typeof obj.error === 'string') return obj.error;
+            if (typeof obj.error === 'object') {
+              const code = obj.error.code || obj.error.type || obj.error.status || '';
+              const msg = obj.error.message || obj.error.msg || obj.error.detail || obj.error.error || '';
+              if (code && msg) return `[${code}] ${msg}`;
+              if (msg) return String(msg);
+              if (code) return String(code);
+            }
+          }
+          if (obj.message) return obj.code ? `[${obj.code}] ${obj.message}` : String(obj.message);
+          if (obj.msg) return String(obj.msg);
+          if (obj.detail) {
+            if (typeof obj.detail === 'string') return obj.detail;
+            if (Array.isArray(obj.detail)) return obj.detail.map((d) => d.msg || JSON.stringify(d)).join('; ');
+          }
+          if (obj.error_description) return String(obj.error_description);
+        }
+      } catch (e) {}
+    }
+
+    if (text.includes('<html') || text.includes('<!DOCTYPE') || text.includes('<title>')) {
+      const titleMatch = text.match(/<title>(.*?)<\/title>/i);
+      if (titleMatch && titleMatch[1]) return titleMatch[1].trim();
+      const h1Match = text.match(/<h1>(.*?)<\/h1>/i);
+      if (h1Match && h1Match[1]) return h1Match[1].trim();
+      text = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    return text;
+  }
+
   function renderEvents(data) {
     const body = $('#event-table');
     $('#event-count').textContent = `${formatInt(data.total)} 条记录`;
     $('#page-label').textContent = data.pages ? `第 ${data.page} / ${data.pages} 页` : '第 0 页';
     $('#page-prev').disabled = data.page <= 1;
     $('#page-next').disabled = !data.pages || data.page >= data.pages;
-    if (!(data.events || []).length) return emptyRow(body, 8);
+    if (!(data.events || []).length) return emptyRow(body, 9);
     body.innerHTML = data.events.map((event) => {
       const inputTokens = Math.max(0, Number(event.input_tokens || 0));
       const cacheReadTokens = Math.max(0, Number(event.cache_read_tokens || event.cached_tokens || 0));
@@ -1641,24 +2023,37 @@
       const totalTokens = Math.max(0, Number(event.total_tokens || 0));
       const rate = cacheHitRate(inputTokens, cacheReadTokens);
       const ttft = Number(event.ttft_ms || 0) > 0 ? formatDuration(event.ttft_ms) : '--';
+      const tps = formatTPS(outputTokens, event.latency_ms, event.ttft_ms);
       const status = event.failed ? `失败${event.status_code ? ` ${event.status_code}` : ''}` : '成功';
+      const errorMsg = formatErrorMessage(event.failure, event.status_code);
+      const errorSubHtml = (event.failed && errorMsg) ? `<span class="cell-sub error-detail-sub" title="${esc(errorMsg)}">${esc(errorMsg)}</span>` : '';
       const tokenCellHtml = renderTokenCell(uncachedInputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens);
+      const costCellHtml = renderCostCell(event);
       return `<tr>
         <td data-label="时间"><span class="cell-main">${esc(formatDateTime(event.timestamp_ms))}</span></td>
         <td data-label="模型 / 渠道"><span class="cell-main" title="${esc(event.model)}">${esc(event.model)}</span><span class="cell-sub" title="${esc(event.upstream_label)}">${esc(event.upstream_label)}</span></td>
         <td data-label="推理强度" class="text-center"><span class="cell-main">${esc(event.reasoning_effort || '--')}</span></td>
-        <td data-label="状态" class="text-center"><span class="status-badge ${event.failed ? 'is-failure' : ''}">${status}</span>${event.failure ? `<span class="cell-sub" title="${esc(event.failure)}">${esc(event.failure)}</span>` : ''}</td>
+        <td data-label="状态" class="text-center"><span class="status-badge ${event.failed ? 'is-failure' : ''}">${status}</span>${errorSubHtml}</td>
         <td data-label="用时 / 首字" class="text-center"><span class="cell-main">${formatDuration(event.latency_ms)}</span><span class="cell-sub">首字 ${ttft}</span></td>
         <td data-label="Token 明细" class="text-center">${tokenCellHtml}</td>
         <td data-label="命中率" class="text-center">${hitRateBadge(rate)}</td>
-        <td data-label="总 Token" class="text-center" title="${formatInt(totalTokens)}"><strong>${formatTokenCompact(totalTokens)}</strong></td>
+        <td data-label="总 Token / 速度" class="text-center"><span class="cell-main" title="${formatInt(totalTokens)} Token"><strong>${formatTokenCompact(totalTokens)}</strong></span><span class="cell-sub" title="输出生成速率 (TPS)">速度 ${tps}</span></td>
+        <td data-label="费用" class="text-center">${costCellHtml}</td>
       </tr>`;
     }).join('');
   }
 
   async function loadSettings(force, signal, requestID) {
-    const [settings, prices] = await Promise.all([api('/settings', { signal }), api('/prices', { signal })]);
+    const [settings, prices, analysis] = await Promise.all([
+      api('/settings', { signal }),
+      api('/prices', { signal }),
+      api('/analysis?range=all', { signal }).catch(() => null),
+    ]);
     if (requestID !== state.loadRequestID || signal.aborted) return;
+    if (analysis?.models || analysis?.distributions?.models) {
+      state.knownRequestedModels = analysis.models || analysis.distributions?.models || [];
+    }
+    updateActiveModelsDatalist();
     renderStorage(settings);
     renderPrices(prices.prices || []);
     $('#auth-state').textContent = state.managementKey ? '已连接 · 密钥仅用于当前页面会话' : '未连接';
@@ -1677,32 +2072,238 @@
     $('#storage-metrics').innerHTML = metrics.map(([label, value]) => metric(label, value)).join('');
   }
 
+  function getRequestedModelsList() {
+    const map = new Map();
+    (state.knownRequestedModels || []).forEach((item) => {
+      if (item.name && item.name !== '未识别') {
+        map.set(item.name.toLowerCase(), { name: item.name, requests: Number(item.requests || 0) });
+      }
+    });
+    $$('#model-table tr').forEach((row) => {
+      const nameEl = row.querySelector('.cell-main');
+      const reqEl = row.querySelector('td:nth-child(2)');
+      if (nameEl) {
+        const name = nameEl.textContent.trim();
+        const reqStr = reqEl ? reqEl.textContent.replace(/[^0-9]/g, '') : '0';
+        if (name && !map.has(name.toLowerCase())) {
+          map.set(name.toLowerCase(), { name, requests: Number(reqStr || 0) });
+        }
+      }
+    });
+    $$('#event-table td[data-label="模型 / 渠道"] .cell-main').forEach((el) => {
+      const name = el.textContent.trim();
+      if (name && !map.has(name.toLowerCase())) {
+        map.set(name.toLowerCase(), { name, requests: 1 });
+      }
+    });
+    return [...map.values()].sort((a, b) => b.requests - a.requests);
+  }
+
+  function updateActiveModelsDatalist() {
+    let datalist = $('#model-name-datalist');
+    if (!datalist) {
+      datalist = document.createElement('datalist');
+      datalist.id = 'model-name-datalist';
+      document.body.appendChild(datalist);
+    }
+    const requested = getRequestedModelsList();
+    let html = '';
+    if (requested.length > 0) {
+      requested.forEach((item) => {
+        html += `<option value="${esc(item.name)}">${esc(item.name)} (${item.requests ? `已产生 ${formatInt(item.requests)} 次请求` : '已产生请求'})</option>`;
+      });
+    }
+    datalist.innerHTML = html;
+  }
+
+  function applyModelToRow(row, modelName) {
+    const input = row.querySelector('[data-price-field="model"]');
+    if (input) {
+      input.value = modelName;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
+  function parseImportedPrices(rawText) {
+    const text = String(rawText || '').trim();
+    if (!text) return [];
+
+    if (text.startsWith('[') || text.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => {
+            if (!item || typeof item !== 'object') return null;
+            const model = String(item.model || item.id || item.name || '').trim();
+            if (!model) return null;
+            return {
+              model,
+              input_per_million: Number(item.input_per_million ?? item.input ?? item.in ?? item.prompt ?? 0),
+              output_per_million: Number(item.output_per_million ?? item.output ?? item.out ?? item.completion ?? 0),
+              cache_read_per_million: Number(item.cache_read_per_million ?? item.cache_read ?? item.cached ?? 0),
+              cache_write_per_million: Number(item.cache_write_per_million ?? item.cache_write ?? item.cache_creation ?? 0),
+              reasoning_per_million: Number(item.reasoning_per_million ?? item.reasoning ?? item.thinking ?? 0),
+            };
+          }).filter(Boolean);
+        } else if (typeof parsed === 'object') {
+          return Object.entries(parsed).map(([modelName, val]) => {
+            const model = String(modelName || '').trim();
+            if (!model) return null;
+            if (typeof val === 'number') {
+              return { model, input_per_million: val, output_per_million: val * 3, cache_read_per_million: val * 0.5, cache_write_per_million: val, reasoning_per_million: 0 };
+            }
+            if (Array.isArray(val)) {
+              return {
+                model,
+                input_per_million: Number(val[0] || 0),
+                output_per_million: Number(val[1] || 0),
+                cache_read_per_million: Number(val[2] || 0),
+                cache_write_per_million: Number(val[3] || 0),
+                reasoning_per_million: Number(val[4] || 0),
+              };
+            }
+            if (typeof val === 'object' && val !== null) {
+              return {
+                model,
+                input_per_million: Number(val.input_per_million ?? val.input ?? val.in ?? val.prompt ?? 0),
+                output_per_million: Number(val.output_per_million ?? val.output ?? val.out ?? val.completion ?? 0),
+                cache_read_per_million: Number(val.cache_read_per_million ?? val.cache_read ?? val.cached ?? 0),
+                cache_write_per_million: Number(val.cache_write_per_million ?? val.cache_write ?? val.cache_creation ?? 0),
+                reasoning_per_million: Number(val.reasoning_per_million ?? val.reasoning ?? val.thinking ?? 0),
+              };
+            }
+            return null;
+          }).filter(Boolean);
+        }
+      } catch (e) {}
+    }
+
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const results = [];
+    for (const line of lines) {
+      if (line.startsWith('#') || line.startsWith('//')) continue;
+      const parts = line.includes('\t') ? line.split('\t') : (line.includes(',') ? line.split(',') : line.split(/\s+/));
+      const model = String(parts[0] || '').trim();
+      if (!model || model.toLowerCase() === 'model' || model === '模型') continue;
+      results.push({
+        model,
+        input_per_million: Number(parts[1] || 0),
+        output_per_million: Number(parts[2] || 0),
+        cache_read_per_million: Number(parts[3] || 0),
+        cache_write_per_million: Number(parts[4] || 0),
+        reasoning_per_million: Number(parts[5] || 0),
+      });
+    }
+    return results;
+  }
+
   function renderPrices(prices) {
     const body = $('#price-table');
     body.innerHTML = '';
     prices.forEach(appendPriceRow);
     if (!prices.length) appendPriceRow({});
+    applyPriceFilter($('#price-search')?.value || '');
   }
 
   function appendPriceRow(price = {}) {
     const row = document.createElement('tr');
-    const fields = ['model', 'input_per_million', 'output_per_million', 'cache_read_per_million', 'cache_write_per_million', 'reasoning_per_million'];
-    row.innerHTML = fields.map((field, index) => `<td><input data-price-field="${field}" type="${index ? 'number' : 'text'}" ${index ? 'min="0" step="0.000001"' : 'placeholder="model-name"'} value="${esc(price[field] ?? '')}"></td>`).join('') + `<td><button class="icon-button" data-remove-price title="删除" aria-label="删除模型价格"><svg><use href="#i-trash"></use></svg></button></td>`;
+    const fields = ['input_per_million', 'output_per_million', 'cache_read_per_million', 'cache_write_per_million', 'reasoning_per_million'];
+    
+    const modelCellHtml = `
+      <td>
+        <div class="model-input-compound">
+          <input list="model-name-datalist" data-price-field="model" type="text" placeholder="选择已有模型或输入自定义..." value="${esc(price.model ?? '')}" autocomplete="off">
+          <button type="button" class="model-picker-btn" title="选择已产生请求的模型" aria-label="快捷选择模型">
+            <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>
+      </td>
+    `;
+
+    const priceCellsHtml = fields.map((field) =>
+      `<td><input data-price-field="${field}" type="number" min="0" step="0.000001" value="${esc(price[field] ?? '')}"></td>`
+    ).join('');
+
+    const actionsCellHtml = `
+      <td>
+        <div class="price-row-actions">
+          <button class="icon-button" data-clone-price title="复制行" aria-label="复制模型价格"><svg><use href="#i-copy"></use></svg></button>
+          <button class="icon-button" data-remove-price title="删除" aria-label="删除模型价格"><svg><use href="#i-trash"></use></svg></button>
+        </div>
+      </td>
+    `;
+
+    row.innerHTML = modelCellHtml + priceCellsHtml + actionsCellHtml;
     $('#price-table').appendChild(row);
   }
 
-  async function savePrices() {
-    const prices = $$('#price-table tr').map((row) => {
+  function getTablePrices() {
+    return $$('#price-table tr').map((row) => {
       const value = {};
-      $$('[data-price-field]', row).forEach((input) => { value[input.dataset.priceField] = input.dataset.priceField === 'model' ? input.value.trim() : Number(input.value || 0); });
+      $$('[data-price-field]', row).forEach((input) => {
+        value[input.dataset.priceField] = input.dataset.priceField === 'model' ? input.value.trim() : Number(input.value || 0);
+      });
       return value;
     }).filter((item) => item.model);
+  }
+
+  function applyPriceFilter(query) {
+    const q = query.trim().toLowerCase();
+    $$('#price-table tr').forEach((row) => {
+      const modelInput = row.querySelector('[data-price-field="model"]');
+      if (!modelInput) return;
+      const model = (modelInput.value || '').toLowerCase();
+      row.hidden = Boolean(q && !model.includes(q));
+    });
+  }
+
+  async function savePrices() {
+    const prices = getTablePrices();
     try {
       const data = await api('/prices', { method: 'PUT', body: JSON.stringify({ prices }) });
       renderPrices(data.prices || []);
       clearFrontendCache();
-      toast('模型价格已保存');
+      toast(`已成功保存 ${prices.length} 个模型价格`);
     } catch (error) { toast(error.message, true); }
+  }
+
+  function exportPricesJSON() {
+    const prices = getTablePrices();
+    const blob = new Blob([JSON.stringify(prices, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `model-prices-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast(`已导出 ${prices.length} 个模型价格配置`);
+  }
+
+  function autoFillUnpricedModels() {
+    const existing = new Set(getTablePrices().map((p) => p.model.toLowerCase()));
+    const discovered = new Set();
+
+    // From model table in overview
+    $$('#model-table .cell-main').forEach((el) => {
+      const name = el.textContent.trim();
+      if (name && !existing.has(name.toLowerCase())) discovered.add(name);
+    });
+
+    // From event rows
+    $$('#event-table td[data-label="模型 / 渠道"] .cell-main').forEach((el) => {
+      const name = el.textContent.trim();
+      if (name && !existing.has(name.toLowerCase())) discovered.add(name);
+    });
+
+    if (!discovered.size) {
+      return toast('所有活跃调用的模型已在价格表中设定');
+    }
+
+    discovered.forEach((model) => {
+      appendPriceRow({ model, input_per_million: 0, output_per_million: 0, cache_read_per_million: 0, cache_write_per_million: 0, reasoning_per_million: 0 });
+    });
+
+    toast(`已自动补全 ${discovered.size} 个未定价模型（请填入单价并点击保存）`);
   }
 
   async function saveStorageSettings(event) {

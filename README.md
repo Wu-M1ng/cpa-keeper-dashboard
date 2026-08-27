@@ -32,7 +32,7 @@ Linux/macOS 将输出文件名改为 `usage-keeper.so` 或 `usage-keeper.dylib`�
 也可以使用：
 
 ```powershell
-.\scripts\build.ps1 -Version 1.3.1
+.\scripts\build.ps1 -Version 1.4.0
 ```
 
 ## 安装

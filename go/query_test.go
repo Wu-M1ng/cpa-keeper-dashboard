@@ -282,6 +282,9 @@ func TestQueryEventsFiltersAndPaginates(t *testing.T) {
 	if page.Total != 1 || len(page.Events) != 1 || page.Events[0].StatusCode != 429 {
 		t.Fatalf("unexpected events page: %+v", page)
 	}
+	if page.Events[0].CostUSD <= 0 || page.Events[0].InputPrice <= 0 {
+		t.Fatalf("event cost or price missing: %+v", page.Events[0])
+	}
 }
 
 func TestManagementResponsesDoNotExposeStoredIdentifiers(t *testing.T) {

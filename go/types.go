@@ -16,7 +16,7 @@ const (
 	pluginID             = "usage-keeper"
 )
 
-var pluginVersion = "1.3.1"
+var pluginVersion = "1.4.0"
 
 type envelope struct {
 	OK     bool            `json:"ok"`
@@ -423,7 +423,18 @@ type usageEvent struct {
 	CachedTokens        int64  `json:"cached_tokens"`
 	CacheReadTokens     int64  `json:"cache_read_tokens"`
 	CacheCreationTokens int64  `json:"cache_creation_tokens"`
-	TotalTokens         int64  `json:"total_tokens"`
+	TotalTokens         int64   `json:"total_tokens"`
+	CostUSD             float64 `json:"cost_usd"`
+	InputCost           float64 `json:"input_cost,omitempty"`
+	OutputCost          float64 `json:"output_cost,omitempty"`
+	CacheReadCost       float64 `json:"cache_read_cost,omitempty"`
+	CacheWriteCost      float64 `json:"cache_write_cost,omitempty"`
+	ReasoningCost       float64 `json:"reasoning_cost,omitempty"`
+	InputPrice          float64 `json:"input_price,omitempty"`
+	OutputPrice         float64 `json:"output_price,omitempty"`
+	CacheReadPrice      float64 `json:"cache_read_price,omitempty"`
+	CacheWritePrice     float64 `json:"cache_write_price,omitempty"`
+	ReasoningPrice      float64 `json:"reasoning_price,omitempty"`
 }
 
 type storageStatus struct {

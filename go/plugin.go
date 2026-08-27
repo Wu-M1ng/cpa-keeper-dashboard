@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/url"
 	"strings"
 	"sync"
@@ -465,7 +466,7 @@ func cleanDimension(value, fallback string) string {
 }
 
 func sanitizeFailure(value string) string {
-	value = strings.TrimSpace(value)
+	value = html.UnescapeString(strings.TrimSpace(value))
 	if len(value) > 512 {
 		value = value[:512]
 	}

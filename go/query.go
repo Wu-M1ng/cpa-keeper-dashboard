@@ -33,6 +33,7 @@ type kpiStats struct {
 	CacheWriteTokens int64   `json:"cache_write_tokens"`
 	ReasoningTokens  int64   `json:"reasoning_tokens"`
 	CostUSD          float64 `json:"cost_usd"`
+	SavedCostUSD     float64 `json:"saved_cost_usd"`
 	AvgLatencyMS     float64 `json:"avg_latency_ms"`
 	AvgTTFTMS        float64 `json:"avg_ttft_ms"`
 	AvgRequestsDaily float64 `json:"avg_requests_daily"`
@@ -84,6 +85,7 @@ type dimensionStat struct {
 	SuccessRate  float64     `json:"success_rate"`
 	TotalTokens  int64       `json:"total_tokens"`
 	CostUSD      float64     `json:"cost_usd"`
+	SavedCostUSD float64     `json:"saved_cost_usd"`
 	AvgLatencyMS float64     `json:"avg_latency_ms"`
 	Tokens       tokenTotals `json:"tokens"`
 	Models       int         `json:"models,omitempty"`
@@ -256,6 +258,9 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 		actualCost := calculateCost(row.Tokens, price)
 		standardCost := calculateStandardCost(row.Tokens, price)
 		result.KPI.CostUSD += actualCost
+		if saved := standardCost - actualCost; saved > 0 {
+			result.KPI.SavedCostUSD += saved
+		}
 		latencySum += row.LatencySumMS
 		ttftSum += row.TTFTSumMS
 		ttftCount += row.TTFTCount
@@ -555,7 +560,13 @@ func queryDimension(ctx context.Context, store *eventStore, rng timeRange, keyCo
 		stat.latencySum += row.latencySum
 		addTokens(&stat.Tokens, row.Tokens)
 		stat.TotalTokens = stat.Tokens.Total
-		stat.CostUSD += calculateCost(row.Tokens, resolvePrice(model, prices))
+		price := resolvePrice(model, prices)
+		actualCost := calculateCost(row.Tokens, price)
+		standardCost := calculateStandardCost(row.Tokens, price)
+		stat.CostUSD += actualCost
+		if saved := standardCost - actualCost; saved > 0 {
+			stat.SavedCostUSD += saved
+		}
 		stat.modelSet[model] = struct{}{}
 	}
 	if err := rows.Err(); err != nil {
@@ -596,6 +607,7 @@ func queryEvents(ctx context.Context, store *eventStore, filter eventFilter) (ev
 		return eventsPage{}, err
 	}
 	defer rows.Close()
+	priceMap, _ := loadPriceMap(ctx, store)
 	events := make([]usageEvent, 0, filter.PageSize)
 	for rows.Next() {
 		event, err := scanEvent(rows)
@@ -603,6 +615,36 @@ func queryEvents(ctx context.Context, store *eventStore, filter eventFilter) (ev
 			return eventsPage{}, err
 		}
 		redactEventForManagement(&event)
+		if priceMap != nil {
+			price := resolvePrice(event.Model, priceMap)
+			cacheRead := max64(0, event.CacheReadTokens)
+			cacheWrite := max64(0, event.CacheCreationTokens)
+			reasoning := max64(0, event.ReasoningTokens)
+			regularInput := max64(0, event.InputTokens-cacheRead-cacheWrite)
+			regularOutput := max64(0, event.OutputTokens-reasoning)
+
+			cacheWriteRate := price.CacheWritePerMillion
+			if cacheWriteRate == 0 {
+				cacheWriteRate = price.InputPerMillion
+			}
+			reasoningRate := price.ReasoningPerMillion
+			if reasoningRate == 0 {
+				reasoningRate = price.OutputPerMillion
+			}
+
+			event.InputPrice = price.InputPerMillion
+			event.OutputPrice = price.OutputPerMillion
+			event.CacheReadPrice = price.CacheReadPerMillion
+			event.CacheWritePrice = cacheWriteRate
+			event.ReasoningPrice = reasoningRate
+
+			event.InputCost = float64(regularInput) * price.InputPerMillion / 1_000_000
+			event.OutputCost = float64(regularOutput) * price.OutputPerMillion / 1_000_000
+			event.CacheReadCost = float64(cacheRead) * price.CacheReadPerMillion / 1_000_000
+			event.CacheWriteCost = float64(cacheWrite) * cacheWriteRate / 1_000_000
+			event.ReasoningCost = float64(reasoning) * reasoningRate / 1_000_000
+			event.CostUSD = event.InputCost + event.OutputCost + event.CacheReadCost + event.CacheWriteCost + event.ReasoningCost
+		}
 		events = append(events, event)
 	}
 	pages := 0
@@ -654,6 +696,7 @@ func mergeDimensionStatsByName(stats []dimensionStat, keyPrefix string) []dimens
 		current.Successes += stat.Successes
 		current.Failures += stat.Failures
 		current.CostUSD += stat.CostUSD
+		current.SavedCostUSD += stat.SavedCostUSD
 		current.latencySum += stat.latencySum
 		addTokens(&current.Tokens, stat.Tokens)
 		for model := range stat.modelSet {
@@ -798,6 +841,7 @@ func mergeDimension(target *dimensionStat, value dimensionStat) {
 	target.Successes += value.Successes
 	target.Failures += value.Failures
 	target.CostUSD += value.CostUSD
+	target.SavedCostUSD += value.SavedCostUSD
 	target.latencySum += int64(value.AvgLatencyMS * float64(value.Requests))
 	addTokens(&target.Tokens, value.Tokens)
 	target.TotalTokens = target.Tokens.Total
