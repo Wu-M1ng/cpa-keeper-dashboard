@@ -1748,12 +1748,12 @@
     body.innerHTML = items.map((item) => {
       const percentage = Math.min(100, Number(item.requests || 0) / total * 100);
       return `<tr>
-        <td><strong class="cell-main" title="${esc(item.name || '未识别')}">${esc(item.name || '未识别')}</strong></td>
-        <td><strong>${formatInt(item.models)} 个模型</strong></td>
-        <td><div class="progress-cell"><span><strong>${formatInt(item.requests)}</strong> <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--blue)"></div></div></div></td>
-        <td>${statusBadge(item.success_rate)}</td>
-        <td title="${formatInt(item.total_tokens)}"><strong>${formatTokenCompact(item.total_tokens)}</strong></td>
-        <td><strong>${formatMoney(item.cost_usd)}</strong></td>
+        <td><span class="cell-main" title="${esc(item.name || '未识别')}">${esc(item.name || '未识别')}</span></td>
+        <td class="text-center">${formatInt(item.models)} 个模型</td>
+        <td class="text-center"><div class="progress-cell"><span>${formatInt(item.requests)} <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--blue)"></div></div></div></td>
+        <td class="text-center">${statusBadge(item.success_rate)}</td>
+        <td class="text-center" title="${formatInt(item.total_tokens)}">${formatTokenCompact(item.total_tokens)}</td>
+        <td class="text-center">${formatMoney(item.cost_usd)}</td>
       </tr>`;
     }).join('');
   }
@@ -1768,14 +1768,14 @@
       const healthLabel = rate >= .98 ? '正常在线' : rate >= .9 ? '轻微波动' : '需要关注';
       const dotCls = rate < .9 ? 'is-err' : rate < .98 ? 'is-warn' : '';
       return `<tr>
-        <td><strong class="cell-main" title="${esc(item.name || '未识别')}">${esc(item.name || '未识别')}</strong></td>
-        <td><span class="status-badge ${rate < .9 ? 'is-failure' : ''}"><i class="status-pulse-dot ${dotCls}"></i>${healthLabel}</span></td>
-        <td><strong>${formatInt(item.models)} 个模型</strong></td>
-        <td><div class="progress-cell"><span><strong>${formatInt(item.requests)}</strong> <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--purple)"></div></div></div></td>
-        <td>${statusBadge(rate)}</td>
-        <td><strong>${formatDuration(item.avg_latency_ms)}</strong></td>
-        <td title="${formatInt(item.total_tokens)}"><strong>${formatTokenCompact(item.total_tokens)}</strong></td>
-        <td><button class="secondary-button compact-btn" data-upstream="${esc(item.key)}">${icon('eye')}详情</button></td>
+        <td><span class="cell-main" title="${esc(item.name || '未识别')}">${esc(item.name || '未识别')}</span></td>
+        <td class="text-center"><span class="status-badge ${rate < .9 ? 'is-failure' : ''}"><i class="status-pulse-dot ${dotCls}"></i>${healthLabel}</span></td>
+        <td class="text-center">${formatInt(item.models)} 个模型</td>
+        <td class="text-center"><div class="progress-cell"><span>${formatInt(item.requests)} <small>(${percentage.toFixed(1)}%)</small></span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${percentage.toFixed(2)}%;background:var(--purple)"></div></div></div></td>
+        <td class="text-center">${statusBadge(rate)}</td>
+        <td class="text-center">${formatDuration(item.avg_latency_ms)}</td>
+        <td class="text-center" title="${formatInt(item.total_tokens)}">${formatTokenCompact(item.total_tokens)}</td>
+        <td class="text-center"><button class="secondary-button compact-btn" data-upstream="${esc(item.key)}">${icon('eye')}详情</button></td>
       </tr>`;
     }).join('');
   }
