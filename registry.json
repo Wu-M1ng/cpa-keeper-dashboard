@@ -6,7 +6,7 @@
       "name": "用量 Keeper",
       "description": "CLIProxyAPI 的轻量用量、健康、事件与价格看板插件。",
       "author": "Wu-M1ng",
-      "version": "1.4.8",
+      "version": "1.4.9",
       "repository": "https://github.com/Wu-M1ng/cpa-keeper-dashboard",
       "logo": "",
       "homepage": "https://github.com/Wu-M1ng/cpa-keeper-dashboard",

@@ -270,7 +270,7 @@ func compactUsageRecord(record usageRecord, salt string) usageEvent {
 		ExecutorType: cleanDimension(record.ExecutorType, ""),
 		Model:        model,
 		Alias:        cleanDimension(record.Alias, ""),
-		Endpoint:     sanitizeEndpoint(record.Endpoint),
+		Endpoint:     sanitizeEndpoint(resolveEndpoint(record.BaseURL, record.Endpoint)),
 		APIKeyMask:   apiMask,
 		APIKeyHash:   apiHash,
 		// Raw account identifiers are only used above to derive the upstream key.
@@ -297,6 +297,30 @@ func compactUsageRecord(record usageRecord, salt string) usageEvent {
 		CacheCreationTokens: max64(0, record.Detail.CacheCreationTokens),
 		TotalTokens:         max64(0, total),
 	}
+}
+
+func resolveEndpoint(baseURL, endpoint string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	endpoint = strings.TrimSpace(endpoint)
+	if baseURL != "" && endpoint != "" {
+		if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
+			return endpoint
+		}
+		if strings.HasPrefix(baseURL, "http://") || strings.HasPrefix(baseURL, "https://") {
+			baseParsed, err := url.Parse(baseURL)
+			if err == nil && baseParsed.Host != "" {
+				if strings.HasPrefix(endpoint, baseParsed.Path) {
+					return baseParsed.Scheme + "://" + baseParsed.Host + endpoint
+				}
+				return strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(endpoint, "/")
+			}
+		}
+		return baseURL
+	}
+	if baseURL != "" {
+		return baseURL
+	}
+	return endpoint
 }
 
 func shortHMAC(value, salt string) string {
@@ -349,22 +373,42 @@ func sanitizeEndpoint(value string) string {
 	}
 	parsed, err := url.Parse(value)
 	if err != nil {
-		return ""
+		return cleanControlChars(value, 256)
 	}
-	path := strings.Map(func(r rune) rune {
+	var res string
+	if parsed.Host != "" {
+		scheme := parsed.Scheme
+		if scheme == "" {
+			scheme = "https"
+		}
+		res = scheme + "://" + parsed.Host + parsed.Path
+	} else {
+		res = parsed.Path
+		if res == "" && parsed.Opaque != "" {
+			res = parsed.Opaque
+		}
+		if res == "" {
+			res = value
+		}
+	}
+	return cleanControlChars(res, 256)
+}
+
+func cleanControlChars(s string, maxLen int) string {
+	cleaned := strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return -1
 		}
 		return r
-	}, parsed.Path)
-	if len(path) <= 256 {
-		return path
+	}, s)
+	if len(cleaned) <= maxLen {
+		return cleaned
 	}
-	path = path[:256]
-	for !utf8.ValidString(path) {
-		path = path[:len(path)-1]
+	cleaned = cleaned[:maxLen]
+	for !utf8.ValidString(cleaned) {
+		cleaned = cleaned[:len(cleaned)-1]
 	}
-	return path
+	return cleaned
 }
 
 func preferredProviderCredential(authType, authID, authIndex string) string {

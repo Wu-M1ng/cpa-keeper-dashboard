@@ -2739,6 +2739,62 @@ dialog::backdrop { background: rgba(15, 20, 27, .44); backdrop-filter: blur(6px)
   .nav-item { min-width: 58px; padding: 4px 8px 3px; }
   .nav-item .nav-icon { width: 17px; height: 17px; }
   .nav-item span { font-size: 10.5px; }
+  .detail-drawer {
+    width: 75vw !important;
+    max-width: 75vw !important;
+    max-height: min(75vh, 620px) !important;
+    border-radius: var(--radius-xl);
+  }
+  .drawer-head {
+    padding: 12px 14px 10px;
+    border-top-left-radius: var(--radius-xl);
+    border-top-right-radius: var(--radius-xl);
+  }
+  .drawer-head h2 {
+    font-size: 14px;
+  }
+  #detail-content {
+    padding: 12px 14px 16px;
+  }
+  .detail-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .detail-kpis .metric {
+    padding: 7px 9px;
+    gap: 3px;
+  }
+  .detail-kpis .metric span {
+    font-size: 10px;
+  }
+  .detail-kpis .metric strong {
+    font-size: 13px;
+  }
+  .upstream-url-banner {
+    padding: 8px 10px;
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+  .url-code {
+    font-size: 10.5px;
+  }
+  .url-copy-btn {
+    font-size: 10px;
+    padding: 2px 5px;
+  }
+  .detail-section {
+    margin-top: 10px;
+  }
+  .detail-section h3 {
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  .detail-section .distribution-row {
+    font-size: 11px;
+    min-height: 28px;
+    padding: 4px 6px;
+  }
   .kpi-row-top, .kpi-row-bottom { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kpi-row-top .kpi-panel:first-child { grid-column: 1 / -1; }
   .trend-panel, .health-panel, .panel { padding: 17px; }
