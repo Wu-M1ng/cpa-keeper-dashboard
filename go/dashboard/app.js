@@ -1787,8 +1787,8 @@
     drawer.classList.add('is-open');
     drawer.setAttribute('aria-hidden', 'false');
     $('#drawer-scrim').classList.add('is-open');
-    $('#detail-title').textContent = '正在加载';
-    $('#detail-content').innerHTML = '<div class="skeleton" style="height:180px"></div>';
+    $('#detail-title').textContent = '正在加载...';
+    $('#detail-content').innerHTML = '<div class="skeleton" style="height:200px"></div>';
     $('#detail-close').focus();
     try {
       const data = await api(`/upstream?range=${encodeURIComponent(state.range)}&key=${encodeURIComponent(key)}`);
@@ -1802,11 +1802,76 @@
         return `<div class="distribution-row" title="${esc(titleText)}"><i style="background:${event.failed ? 'var(--red)' : 'var(--green)'}"></i><span>${esc(event.model)} · ${esc(formatDateTime(event.timestamp_ms))}${errText ? ` <small style="color:var(--red)">(${esc(errText)})</small>` : ''}</span><strong>${formatDuration(event.latency_ms)}</strong></div>`;
       }).join('') || '<span class="cell-sub">暂无数据</span>';
 
-      $('#detail-content').innerHTML = `<div class="detail-kpis">${metric('请求', formatInt(summary.requests))}${metric('成功率', formatPercent(summary.success_rate))}${metric('Token', formatCompact(summary.total_tokens))}${metric('平均延迟', formatDuration(summary.avg_latency_ms))}</div><section class="detail-section"><h3>模型</h3>${models.map((item) => `<div class="distribution-row"><i style="background:var(--accent)"></i><span>${esc(item.name)}</span><strong>${formatInt(item.requests)}</strong></div>`).join('') || '<span class="cell-sub">暂无数据</span>'}</section><section class="detail-section"><h3>近期事件</h3>${recentEventsHtml}</section>`;
+      const endpointUrl = data.endpoint || (events.find((e) => e.endpoint)?.endpoint) || '';
+      const endpointHtml = endpointUrl ? `
+        <div class="upstream-url-banner">
+          <div class="url-badge">
+            <span class="url-label">请求地址 / Endpoint</span>
+            <button type="button" class="url-copy-btn" data-copy-text="${esc(endpointUrl)}" title="复制请求地址">
+              ${icon('copy')}复制地址
+            </button>
+          </div>
+          <code class="url-code" title="${esc(endpointUrl)}">${esc(endpointUrl)}</code>
+        </div>
+      ` : `
+        <div class="upstream-url-banner">
+          <div class="url-badge">
+            <span class="url-label">上游协议 / 渠道</span>
+            <span class="url-source-tag">${esc(data.provider || '通用上游')}</span>
+          </div>
+          <code class="url-code">/v1/chat/completions</code>
+        </div>
+      `;
+
+      $('#detail-content').innerHTML = `
+        ${endpointHtml}
+        <div class="detail-kpis">
+          ${metric('请求', formatInt(summary.requests))}
+          ${metric('成功率', formatPercent(summary.success_rate))}
+          ${metric('Token', formatCompact(summary.total_tokens))}
+          ${metric('平均延迟', formatDuration(summary.avg_latency_ms))}
+        </div>
+        <section class="detail-section">
+          <h3>模型</h3>
+          ${models.map((item) => `<div class="distribution-row"><i style="background:var(--accent)"></i><span>${esc(item.name)}</span><strong>${formatInt(item.requests)}</strong></div>`).join('') || '<span class="cell-sub">暂无数据</span>'}
+        </section>
+        <section class="detail-section">
+          <h3>近期事件</h3>
+          ${recentEventsHtml}
+        </section>
+      `;
+
+      const copyBtn = $('#detail-content .url-copy-btn');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', async () => {
+          const text = copyBtn.dataset.copyText;
+          if (text) {
+            try {
+              await navigator.clipboard.writeText(text);
+              toast('请求地址已复制到剪贴板');
+            } catch (_) {
+              toast('复制失败，请手动选择复制', true);
+            }
+          }
+        });
+      }
     } catch (error) {
       $('#detail-title').textContent = '加载失败';
       $('#detail-content').textContent = error.message;
     }
+  }
+
+  function bindDrawer() {
+    $('#detail-close')?.addEventListener('click', () => closeDrawer(true));
+    $('#drawer-scrim')?.addEventListener('click', () => closeDrawer(true));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const drawer = $('#detail-drawer');
+        if (drawer && drawer.classList.contains('is-open')) {
+          closeDrawer(true);
+        }
+      }
+    });
   }
 
   function closeDrawer(restoreFocus = true) {

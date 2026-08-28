@@ -113,6 +113,8 @@ type interfacesResponse struct {
 type upstreamDetailResponse struct {
 	Key          string          `json:"key"`
 	Name         string          `json:"name"`
+	Provider     string          `json:"provider,omitempty"`
+	Endpoint     string          `json:"endpoint,omitempty"`
 	Range        timeRange       `json:"range"`
 	Summary      dimensionStat   `json:"summary"`
 	Models       []dimensionStat `json:"models"`
@@ -472,6 +474,7 @@ func queryUpstreamDetail(ctx context.Context, store *eventStore, key string, que
 	_ = store.db.QueryRowContext(ctx, `SELECT MAX(source), MAX(provider) FROM usage_minute_rollups
 		WHERE upstream_key = ? AND minute BETWEEN ? AND ?`, key, rng.FromMS/60000, rng.ToMS/60000).Scan(&storedName, &provider)
 	result.Name = maskedProviderCredentialDisplay(provider, storedName, key)
+	result.Provider = provider
 	result.Summary.Key, result.Summary.Name = key, result.Name
 	result.Summary.SuccessRate = ratio(result.Summary.Successes, result.Summary.Requests)
 	result.Summary.AvgLatencyMS = average(result.Summary.latencySum, result.Summary.Requests)
@@ -480,6 +483,10 @@ func queryUpstreamDetail(ctx context.Context, store *eventStore, key string, que
 		return upstreamDetailResponse{}, err
 	}
 	result.RecentEvents = page.Events
+	var latestEndpoint string
+	_ = store.db.QueryRowContext(ctx, `SELECT endpoint FROM usage_events
+		WHERE upstream_key = ? AND endpoint != '' ORDER BY timestamp_ms DESC LIMIT 1`, key).Scan(&latestEndpoint)
+	result.Endpoint = latestEndpoint
 	return result, nil
 }
 

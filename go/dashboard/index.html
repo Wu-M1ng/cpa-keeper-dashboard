@@ -44,9 +44,18 @@
         <span class="brand-copy"><strong>用量 Keeper</strong><small>CLIProxyAPI</small></span>
       </div>
       <nav class="primary-nav" aria-label="主要页面">
-        <button class="nav-item is-active" data-page-target="overview">总览</button>
-        <button class="nav-item" data-page-target="interfaces">接口</button>
-        <button class="nav-item" data-page-target="settings">设置</button>
+        <button class="nav-item is-active" data-page-target="overview" title="总览看板">
+          <svg class="nav-icon"><use href="#i-layout-dashboard"/></svg>
+          <span>总览</span>
+        </button>
+        <button class="nav-item" data-page-target="interfaces" title="接口与上游">
+          <svg class="nav-icon"><use href="#i-activity"/></svg>
+          <span>接口</span>
+        </button>
+        <button class="nav-item" data-page-target="settings" title="价格与管理设置">
+          <svg class="nav-icon"><use href="#i-settings"/></svg>
+          <span>设置</span>
+        </button>
       </nav>
       <div class="top-nav-status" data-region="connection-state" title="采集服务在线">
         <span id="connection-dot" class="status-dot"></span>
