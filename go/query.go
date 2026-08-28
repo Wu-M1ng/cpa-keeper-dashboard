@@ -483,16 +483,6 @@ func queryUpstreamDetail(ctx context.Context, store *eventStore, key string, que
 		return upstreamDetailResponse{}, err
 	}
 	result.RecentEvents = page.Events
-	var latestEndpoint string
-	_ = store.db.QueryRowContext(ctx, `SELECT endpoint FROM usage_events
-		WHERE (upstream_key = ? OR source = ? OR upstream_label = ?) AND endpoint != ''
-		ORDER BY timestamp_ms DESC LIMIT 1`, key, key, key).Scan(&latestEndpoint)
-	if latestEndpoint == "" && provider != "" {
-		_ = store.db.QueryRowContext(ctx, `SELECT endpoint FROM usage_events
-			WHERE provider = ? AND endpoint != ''
-			ORDER BY timestamp_ms DESC LIMIT 1`, provider).Scan(&latestEndpoint)
-	}
-	result.Endpoint = latestEndpoint
 	return result, nil
 }
 

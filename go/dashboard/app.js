@@ -1780,27 +1780,6 @@
     }).join('');
   }
 
-  function formatUpstreamEndpoint(url) {
-    let raw = String(url || '').trim();
-    if (!raw) return '';
-
-    // Strip method subpaths like /chat/completions, /completions, /messages, etc.
-    raw = raw.replace(/\/(?:chat\/completions|completions|messages|embeddings|models|responses)\/?$/i, '');
-    raw = raw.replace(/\/(?:v1\/chat|chat)\/?$/i, '/v1');
-    if (raw.endsWith('/') && raw.length > 8) {
-      raw = raw.slice(0, -1);
-    }
-
-    if (/^https?:\/\//i.test(raw)) {
-      return raw;
-    }
-    if (/^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}/i.test(raw)) {
-      return `https://${raw}`;
-    }
-
-    return raw.startsWith('/') ? '' : `https://${raw}`;
-  }
-
   async function openUpstream(key, trigger) {
     const drawer = $('#detail-drawer');
     state.drawerReturnFocus = trigger || document.activeElement;
@@ -1823,30 +1802,7 @@
         return `<div class="distribution-row" title="${esc(titleText)}"><i style="background:${event.failed ? 'var(--red)' : 'var(--green)'}"></i><span>${esc(event.model)} · ${esc(formatDateTime(event.timestamp_ms))}${errText ? ` <small style="color:var(--red)">(${esc(errText)})</small>` : ''}</span><strong>${formatDuration(event.latency_ms)}</strong></div>`;
       }).join('') || '<span class="cell-sub">暂无数据</span>';
 
-      const rawEndpoint = data.endpoint || (events.find((e) => e.endpoint)?.endpoint) || '';
-      const endpointUrl = formatUpstreamEndpoint(rawEndpoint);
-      const endpointHtml = endpointUrl ? `
-        <div class="upstream-url-banner">
-          <div class="url-badge">
-            <span class="url-label">请求端点 / Base URL</span>
-            <button type="button" class="url-copy-btn" data-copy-text="${esc(endpointUrl)}" title="复制请求端点">
-              ${icon('copy')}复制端点
-            </button>
-          </div>
-          <code class="url-code" title="${esc(endpointUrl)}">${esc(endpointUrl)}</code>
-        </div>
-      ` : `
-        <div class="upstream-url-banner">
-          <div class="url-badge">
-            <span class="url-label">上游协议 / 渠道</span>
-            <span class="url-source-tag">${esc(data.provider || '通用上游')}</span>
-          </div>
-          <code class="url-code" style="color:var(--muted)">未记录完整端点地址</code>
-        </div>
-      `;
-
       $('#detail-content').innerHTML = `
-        ${endpointHtml}
         <div class="detail-kpis">
           ${metric('请求', formatInt(summary.requests))}
           ${metric('成功率', formatPercent(summary.success_rate))}
@@ -1862,21 +1818,6 @@
           ${recentEventsHtml}
         </section>
       `;
-
-      const copyBtn = $('#detail-content .url-copy-btn');
-      if (copyBtn) {
-        copyBtn.addEventListener('click', async () => {
-          const text = copyBtn.dataset.copyText;
-          if (text) {
-            try {
-              await navigator.clipboard.writeText(text);
-              toast('请求地址已复制到剪贴板');
-            } catch (_) {
-              toast('复制失败，请手动选择复制', true);
-            }
-          }
-        });
-      }
     } catch (error) {
       $('#detail-title').textContent = '加载失败';
       $('#detail-content').textContent = error.message;

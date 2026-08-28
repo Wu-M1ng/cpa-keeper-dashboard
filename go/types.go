@@ -16,7 +16,7 @@ const (
 	pluginID             = "usage-keeper"
 )
 
-var pluginVersion = "1.4.9"
+var pluginVersion = "1.5.0"
 
 type envelope struct {
 	OK     bool            `json:"ok"`

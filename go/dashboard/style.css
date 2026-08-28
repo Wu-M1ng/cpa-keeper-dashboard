@@ -2444,11 +2444,13 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
   left: 50%;
   transform: translate(-50%, -46%) scale(0.96);
   z-index: 200;
-  width: min(520px, calc(100vw - 28px));
-  max-height: min(84vh, 680px);
+  width: min(520px, 75vw);
+  max-width: 75vw;
+  max-height: min(75vh, 680px);
   display: flex;
   flex-direction: column;
   padding: 0;
+  box-sizing: border-box;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-2xl);
   background: color-mix(in srgb, var(--surface-raised) 98%, transparent);
@@ -2471,12 +2473,13 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 16px 20px 14px;
+  padding: 14px 18px 12px;
   border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, color-mix(in srgb, var(--blue) 3%, var(--surface-raised)) 0%, var(--surface-raised) 100%);
   border-top-left-radius: var(--radius-2xl);
   border-top-right-radius: var(--radius-2xl);
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 .drawer-head small {
   color: var(--blue);
@@ -2488,14 +2491,14 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
 .drawer-head h2 {
   margin: 3px 0 0;
   overflow-wrap: anywhere;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 780;
   line-height: 1.3;
 }
 #detail-close {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -2511,9 +2514,11 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
   transform: rotate(90deg);
 }
 #detail-content {
-  padding: 16px 20px 20px;
+  padding: 14px 18px 18px;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
+  box-sizing: border-box;
 }
 .drawer-scrim {
   position: fixed;
@@ -2528,83 +2533,27 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
 }
 .drawer-scrim.is-open { visibility: visible; opacity: 1; }
 
-.upstream-url-banner {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 10px 13px;
-  margin-bottom: 12px;
-  border: 1px solid color-mix(in srgb, var(--blue) 22%, var(--line));
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--blue) 4%, var(--surface));
-}
-.url-badge {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.url-label {
-  color: var(--blue);
-  font-size: 10.5px;
-  font-weight: 750;
-  letter-spacing: 0.02em;
-}
-.url-copy-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--blue) 12%, var(--surface));
-  color: var(--blue);
-  font-size: 10.5px;
-  font-weight: 700;
-  cursor: pointer;
-  border: 1px solid color-mix(in srgb, var(--blue) 25%, transparent);
-  transition: background .12s ease, transform .12s ease;
-}
-.url-copy-btn:hover {
-  background: color-mix(in srgb, var(--blue) 22%, var(--surface));
-  transform: scale(1.03);
-}
-.url-source-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--purple) 12%, var(--surface));
-  color: var(--purple);
-  font-size: 10px;
-  font-weight: 700;
-}
-.url-code {
-  display: block;
-  color: var(--text);
-  font-family: var(--font-mono), monospace;
-  font-size: 11.5px;
-  font-weight: 600;
-  word-break: break-all;
-  user-select: all;
-}
-
 .detail-kpis {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
   margin-top: 4px;
   margin-bottom: 14px;
+  width: 100%;
+  box-sizing: border-box;
 }
 .detail-kpis .metric {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 6px;
-  padding: 10px 14px;
+  gap: 4px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--surface) 94%, var(--surface-subtle));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), var(--shadow-sm);
+  box-sizing: border-box;
+  min-width: 0;
   transition: border-color .16s ease, transform .16s ease;
 }
 .detail-kpis .metric:hover {
@@ -2612,20 +2561,39 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
 }
 .detail-kpis .metric span {
   color: var(--muted-strong);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 680;
   letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .detail-kpis .metric strong {
   color: var(--text);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.detail-section { margin-top: 14px; }
-.detail-section h3 { margin: 0 0 8px; color: var(--muted-strong); font-size: 11.5px; font-weight: 750; }
-.detail-section .distribution-row { min-height: 32px; }
+.detail-section {
+  margin-top: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.detail-section h3 {
+  margin: 0 0 6px;
+  color: var(--muted-strong);
+  font-size: 11px;
+  font-weight: 750;
+}
+.detail-section .distribution-row {
+  min-height: 28px;
+  padding: 4px 6px;
+  box-sizing: border-box;
+}
 
 dialog { width: min(480px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-strong); border-radius: var(--radius-2xl); background: var(--surface-raised); color: var(--text); box-shadow: var(--shadow-lg); }
 dialog::backdrop { background: rgba(15, 20, 27, .44); backdrop-filter: blur(6px); }
@@ -2733,11 +2701,45 @@ dialog::backdrop { background: rgba(15, 20, 27, .44); backdrop-filter: blur(6px)
 }
 
 @media (max-width: 780px) {
-  .workspace { padding-inline: 14px; }
-  .top-nav { width: calc(100% - 20px); padding: 5px 12px; gap: 8px; min-height: 56px; }
-  .brand-copy { display: none; }
-  .nav-item { min-width: 58px; padding: 4px 8px 3px; }
-  .nav-item .nav-icon { width: 17px; height: 17px; }
+  .workspace {
+    padding-inline: 14px;
+    padding-bottom: 96px !important;
+  }
+  .top-nav {
+    position: fixed !important;
+    top: auto !important;
+    bottom: max(14px, env(safe-area-inset-bottom, 14px)) !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: min(440px, calc(100% - 24px)) !important;
+    margin: 0 !important;
+    z-index: 150 !important;
+    min-height: 56px !important;
+    padding: 4px 8px !important;
+    border-radius: 999px !important;
+    background: color-mix(in srgb, var(--surface-raised) 92%, transparent) !important;
+    backdrop-filter: blur(28px) saturate(190%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
+    box-shadow: 0 16px 40px -4px rgba(0, 0, 0, 0.28), 0 4px 16px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+  }
+  .brand { display: none !important; }
+  .primary-nav {
+    width: 100% !important;
+    justify-content: space-around !important;
+    gap: 4px !important;
+    padding: 2px 4px !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .nav-item {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    min-height: 44px !important;
+    padding: 4px 4px 3px !important;
+    border-radius: 999px !important;
+  }
+  .nav-item .nav-icon { width: 18px; height: 18px; }
   .nav-item span { font-size: 10.5px; }
   .detail-drawer {
     width: 75vw !important;
@@ -2770,18 +2772,6 @@ dialog::backdrop { background: rgba(15, 20, 27, .44); backdrop-filter: blur(6px)
   }
   .detail-kpis .metric strong {
     font-size: 13px;
-  }
-  .upstream-url-banner {
-    padding: 8px 10px;
-    gap: 4px;
-    margin-bottom: 10px;
-  }
-  .url-code {
-    font-size: 10.5px;
-  }
-  .url-copy-btn {
-    font-size: 10px;
-    padding: 2px 5px;
   }
   .detail-section {
     margin-top: 10px;
@@ -2882,17 +2872,9 @@ dialog::backdrop { background: rgba(15, 20, 27, .44); backdrop-filter: blur(6px)
 
 @media (max-width: 560px) {
   .top-nav {
-    width: calc(100% - 20px);
-    top: 8px;
-    margin: 8px auto 0;
-    padding: 6px 12px;
-    min-height: 50px;
-    grid-template-columns: auto 1fr auto;
-    gap: 6px;
+    width: calc(100% - 16px) !important;
+    bottom: max(10px, env(safe-area-inset-bottom, 10px)) !important;
   }
-  .brand-copy { display: none; }
-  .primary-nav { width: 100%; justify-content: space-around; }
-  .nav-item { min-width: 0; padding: 0 10px; font-size: 12px; }
   .kpi-row-top, .kpi-row-bottom, .distribution-grid, .interface-summary { grid-template-columns: 1fr; }
   .kpi-row-top .kpi-panel:first-child { grid-column: auto; }
   .kpi-panel { min-height: 152px; }
