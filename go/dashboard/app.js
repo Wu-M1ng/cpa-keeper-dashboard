@@ -1872,6 +1872,18 @@
         }
       }
     });
+
+    // Delegate click for upstream detail buttons
+    document.addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-upstream]');
+      if (btn) {
+        event.preventDefault();
+        const key = btn.dataset.upstream;
+        if (key) {
+          openUpstream(key, btn);
+        }
+      }
+    });
   }
 
   function closeDrawer(restoreFocus = true) {
