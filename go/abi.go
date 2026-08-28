@@ -57,7 +57,7 @@ func handleRegister(raw []byte) ([]byte, error) {
 		Metadata: pluginMetadata{
 			Name:             "用量 Keeper",
 			Version:          pluginVersion,
-			Author:           "local",
+			Author:           "Wu-M1ng",
 			GitHubRepository: "https://github.com/Wu-M1ng/cpa-keeper-dashboard",
 			ConfigFields: []configField{
 				{Name: "storage_enabled", Type: "boolean", Default: true, Description: "启用 SQLite 持久化。"},

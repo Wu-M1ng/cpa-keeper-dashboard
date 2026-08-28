@@ -48,9 +48,9 @@
         <button class="nav-item" data-page-target="interfaces">接口</button>
         <button class="nav-item" data-page-target="settings">设置</button>
       </nav>
-      <div class="top-nav-status" data-region="connection-state">
+      <div class="top-nav-status" data-region="connection-state" title="采集服务在线">
         <span id="connection-dot" class="status-dot"></span>
-        <span id="connection-label">管理连接</span>
+        <span id="connection-label" class="sr-only">采集服务在线</span>
       </div>
     </header>
 
@@ -103,7 +103,7 @@
             <div class="distribution-grid" id="distribution-grid" data-region="distributions"></div>
             <section class="panel token-panel" data-region="tokens"><div class="panel-head"><div><h2>Token 构成</h2><p>输入、输出与缓存的 Token 占比及模型单价换算费用。</p></div><strong id="token-total" class="sr-only">0</strong></div><div id="token-composition"></div></section>
             <section class="table-section" data-region="model-statistics">
-              <div class="section-head"><div><h2>模型统计</h2><p>请求质量、消耗与成本</p></div></div>
+              <div class="section-head"><div><h2>模型统计</h2><p>请求质量、消耗与成本</p></div><span class="scroll-hint">⟷ 左右滑动</span></div>
               <div class="table-wrap"><table class="model-table"><caption class="sr-only">模型统计</caption><thead><tr><th scope="col">模型</th><th scope="col">请求</th><th scope="col">成功率</th><th scope="col">缓存命中率</th><th scope="col">Token</th><th scope="col">平均延迟</th><th scope="col">费用</th></tr></thead><tbody id="model-table"></tbody></table></div>
             </section>
           </div>
@@ -119,7 +119,7 @@
               <button class="secondary-button" id="event-export" type="button"><svg><use href="#i-download"/></svg>导出 CSV</button>
             </form>
             <section class="table-section event-table-section">
-              <div class="section-head"><div><h2>请求明细记录</h2><p id="event-count" aria-live="polite">0 条记录</p></div></div>
+              <div class="section-head"><div><h2>请求明细记录</h2><p id="event-count" aria-live="polite">0 条记录</p></div><span class="scroll-hint">⟷ 左右滑动</span></div>
               <div class="table-wrap"><table class="event-table"><caption class="sr-only">请求明细记录</caption><thead><tr><th scope="col">时间</th><th scope="col">模型 / 渠道</th><th scope="col">推理强度</th><th scope="col">状态</th><th scope="col">用时 / 首字</th><th scope="col">Token 明细</th><th scope="col">命中率</th><th scope="col">总 Token / 速度</th><th scope="col">费用</th></tr></thead><tbody id="event-table"></tbody></table></div>
               <div class="pagination"><button id="page-prev" class="icon-button" title="上一页" aria-label="上一页"><svg><use href="#i-chevron-left"/></svg></button><span id="page-label">第 1 页</span><button id="page-next" class="icon-button" title="下一页" aria-label="下一页"><svg><use href="#i-chevron-right"/></svg></button></div>
             </section>
@@ -149,8 +149,8 @@
               <div id="upstream-latency-board" class="upstream-latency-board" aria-label="上游响应延迟与健康排行"></div>
             </section>
           </div>
-          <section class="table-section" data-region="api-keys"><div class="section-head"><div><h2>客户端 Key 分组</h2><p>匿名客户端调用分组汇总与负载占比</p></div></div><div class="table-wrap"><table class="api-key-table"><caption class="sr-only">客户端 Key 分组</caption><thead><tr><th scope="col">客户端 Key</th><th scope="col">绑定模型</th><th scope="col">调用次数与占比</th><th scope="col">成功率</th><th scope="col">Token</th><th scope="col">预估费用</th></tr></thead><tbody id="api-key-table"></tbody></table></div></section>
-          <section class="table-section" data-region="upstreams"><div class="section-head"><div><h2>上游统计</h2><p>匿名 Provider 凭证分组与健康监控</p></div></div><div class="table-wrap"><table class="upstream-table"><caption class="sr-only">上游统计</caption><thead><tr><th scope="col">上游分组名称</th><th scope="col">状态</th><th scope="col">关联模型</th><th scope="col">负载请求占比</th><th scope="col">成功率</th><th scope="col">平均延迟</th><th scope="col">Token</th><th scope="col">操作</th></tr></thead><tbody id="upstream-table"></tbody></table></div></section>
+          <section class="table-section" data-region="api-keys"><div class="section-head"><div><h2>客户端 Key 分组</h2><p>匿名客户端调用分组汇总与负载占比</p></div><span class="scroll-hint">⟷ 左右滑动</span></div><div class="table-wrap"><table class="api-key-table"><caption class="sr-only">客户端 Key 分组</caption><thead><tr><th scope="col">客户端 Key</th><th scope="col">绑定模型</th><th scope="col">调用次数与占比</th><th scope="col">成功率</th><th scope="col">Token</th><th scope="col">预估费用</th></tr></thead><tbody id="api-key-table"></tbody></table></div></section>
+          <section class="table-section" data-region="upstreams"><div class="section-head"><div><h2>上游统计</h2><p>匿名 Provider 凭证分组与健康监控</p></div><span class="scroll-hint">⟷ 左右滑动</span></div><div class="table-wrap"><table class="upstream-table"><caption class="sr-only">上游统计</caption><thead><tr><th scope="col">上游分组名称</th><th scope="col">状态</th><th scope="col">关联模型</th><th scope="col">负载请求占比</th><th scope="col">成功率</th><th scope="col">平均延迟</th><th scope="col">Token</th><th scope="col">操作</th></tr></thead><tbody id="upstream-table"></tbody></table></div></section>
         </section>
 
         <section class="page" data-page="settings" data-region="settings-page">
@@ -161,6 +161,7 @@
                 <h2>模型价格设置</h2>
                 <p>按 1M Token (百万 Token) 美元 ($) 计价 · 支持多维度灵活计费</p>
               </div>
+              <span class="scroll-hint">⟷ 左右滑动</span>
               <div class="command-group price-actions-group">
                 <div class="price-search-wrapper">
                   <svg class="price-search-icon"><use href="#i-search"/></svg>

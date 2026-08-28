@@ -2427,9 +2427,18 @@
 
   function updateConnection(online) {
     const dot = $('#connection-dot');
-    dot.classList.toggle('is-online', online);
-    dot.classList.toggle('is-error', !online);
-    $('#connection-label').textContent = online ? '采集服务在线' : '管理连接中断';
+    if (dot) {
+      dot.classList.toggle('is-online', online);
+      dot.classList.toggle('is-error', !online);
+      const statusBox = dot.closest('.top-nav-status');
+      if (statusBox) {
+        statusBox.setAttribute('title', online ? '采集服务在线' : '管理连接中断');
+      }
+    }
+    const label = $('#connection-label');
+    if (label) {
+      label.textContent = online ? '采集服务在线' : '管理连接中断';
+    }
     const topbarDot = $('#topbar-state-dot');
     const topbarLabel = $('#topbar-state-label');
     if (topbarDot && topbarLabel) {
