@@ -298,18 +298,52 @@
           return;
         }
         currentPickerRow = row;
+        const currentModel = (row.querySelector('[data-price-field="model"]')?.value || '').trim();
+        const configuredElsewhere = new Set();
+        $$('#price-table tr').forEach((r) => {
+          if (r === row) return;
+          const m = (r.querySelector('[data-price-field="model"]')?.value || '').trim();
+          if (m) configuredElsewhere.add(m.toLowerCase());
+        });
+
         const requested = getRequestedModelsList();
         
         let html = '';
         if (requested.length > 0) {
           html += `<div class="mpd-section-title"><span>⚡ 已产生调用的模型</span><span class="mpd-count-tag">${requested.length} 个</span></div>`;
           requested.forEach((item) => {
-            html += `
-              <button type="button" class="mpd-item" data-select-model="${esc(item.name)}">
-                <span class="mpd-item-name">${esc(item.name)}</span>
-                <span class="mpd-item-badge">${item.requests ? `${formatInt(item.requests)} 次请求` : '已调用'}</span>
-              </button>
-            `;
+            const isCurrent = Boolean(currentModel && item.name.toLowerCase() === currentModel.toLowerCase());
+            const isConfigured = configuredElsewhere.has(item.name.toLowerCase());
+
+            if (isCurrent) {
+              html += `
+                <button type="button" class="mpd-item is-current" data-select-model="${esc(item.name)}" title="当前行已设定此模型">
+                  <span class="mpd-item-left">
+                    <svg class="mpd-check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+                    <span class="mpd-item-name">${esc(item.name)}</span>
+                  </span>
+                  <span class="mpd-item-badge is-current-badge">当前已选 (${item.requests ? `${formatInt(item.requests)} 次` : '已调用'})</span>
+                </button>
+              `;
+            } else if (isConfigured) {
+              html += `
+                <button type="button" class="mpd-item is-disabled" disabled title="该模型已在价格表中设定">
+                  <span class="mpd-item-left">
+                    <span class="mpd-item-name">${esc(item.name)}</span>
+                  </span>
+                  <span class="mpd-item-badge is-disabled-badge">已在价格表中</span>
+                </button>
+              `;
+            } else {
+              html += `
+                <button type="button" class="mpd-item" data-select-model="${esc(item.name)}">
+                  <span class="mpd-item-left">
+                    <span class="mpd-item-name">${esc(item.name)}</span>
+                  </span>
+                  <span class="mpd-item-badge">${item.requests ? `${formatInt(item.requests)} 次请求` : '已调用'}</span>
+                </button>
+              `;
+            }
           });
         } else {
           html += `<div class="mpd-section-title"><span>⚡ 已产生调用的模型</span></div><div class="cell-sub" style="padding:8px 10px">暂无请求记录，可直接在输入框中自定义输入</div>`;
@@ -2066,9 +2100,12 @@
     $('#storage-settings [name="retention_days"]').value = config.retention_days || 30;
     $('#storage-settings [name="export_max_records"]').value = config.export_max_records || 50000;
     const metrics = [
-      ['数据库', formatBytes(storage.database_bytes)], ['事件', formatInt(storage.event_count)],
-      ['Rollup', formatInt(storage.rollup_count)], ['队列丢弃', formatInt(runtime.dropped)],
-      ['写入失败', formatInt(runtime.write_failures)], ['最近批写', `${formatNumber(runtime.last_batch_ms, 2)} ms`],
+      ['数据库大小', formatBytes(storage.database_bytes)],
+      ['总事件记录', formatInt(storage.event_count)],
+      ['分钟 Rollup', formatInt(storage.rollup_count)],
+      ['最近批写耗时', `${formatNumber(runtime.last_batch_ms, 2)} ms`],
+      ['写入失败数', formatInt(runtime.write_failures)],
+      ['队列丢弃数', formatInt(runtime.dropped)],
     ];
     $('#storage-metrics').innerHTML = metrics.map(([label, value]) => metric(label, value)).join('');
   }
