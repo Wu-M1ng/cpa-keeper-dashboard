@@ -175,6 +175,41 @@ func TestPruneExpiredUsesCurrentRetentionDays(t *testing.T) {
 	}
 }
 
+func TestPruneExpiredSerializesWithRetentionUpdates(t *testing.T) {
+	store := openTestStore(t)
+	now := time.Now().UTC()
+	if err := store.writeBatch([]usageEvent{fixtureEvent(now.AddDate(0, 0, -40), "keep-for-sixty-days", false, 1, 1)}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &pluginRuntime{config: runtimeConfig{RetentionDays: 30}, store: store}
+	runtime.settingsMu.Lock()
+	done := make(chan error, 1)
+	go func() { done <- runtime.pruneExpired(now) }()
+
+	select {
+	case err := <-done:
+		runtime.settingsMu.Unlock()
+		t.Fatalf("background prune bypassed settings serialization: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	runtime.configMu.Lock()
+	runtime.config.RetentionDays = 60
+	runtime.configMu.Unlock()
+	runtime.settingsMu.Unlock()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("background prune did not resume after settings update")
+	}
+	if count := store.status().EventCount; count != 1 {
+		t.Fatalf("background prune used stale retention and removed data: count=%d", count)
+	}
+}
+
 func TestSanitizeEndpointKeepsEndpointPathVisible(t *testing.T) {
 	input := "https://proxy.local/v1/account%40example.com/sk-live-123456789/chat?api_key=secret#fragment"
 	want := "https://proxy.local/v1/account@example.com/sk-live-123456789/chat"

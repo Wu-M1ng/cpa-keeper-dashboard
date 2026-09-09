@@ -31,6 +31,7 @@ type eventStore struct {
 	mu       sync.RWMutex
 	last     time.Time
 	lastErr  string
+	pruneErr string
 
 	priceMu     sync.RWMutex
 	priceLoaded bool
@@ -313,26 +314,56 @@ func writeEventsTx(ctx context.Context, tx *sql.Tx, events []usageEvent) error {
 	return nil
 }
 
-func (s *eventStore) prune(retentionDays int, now time.Time) error {
+func (s *eventStore) prune(retentionDays int, now time.Time) (err error) {
 	if retentionDays <= 0 {
 		return nil
 	}
-	cutoffMS := now.AddDate(0, 0, -retentionDays).UnixMilli()
+	defer func() { s.setPruneError(err) }()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "DELETE FROM usage_events WHERE timestamp_ms < ?", cutoffMS); err == nil {
-		_, err = tx.ExecContext(ctx, "DELETE FROM usage_minute_rollups WHERE minute < ?", cutoffMS/60000)
-	}
-	if err != nil {
-		_ = tx.Rollback()
-		s.setError(err)
+	defer tx.Rollback()
+	if err := pruneEventsTx(ctx, tx, retentionDays, now); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+func pruneEventsTx(ctx context.Context, tx *sql.Tx, retentionDays int, now time.Time) error {
+	if retentionDays <= 0 {
+		return nil
+	}
+	cutoffMS := now.UTC().AddDate(0, 0, -retentionDays).UnixMilli()
+	if _, err := tx.ExecContext(ctx, "DELETE FROM usage_events WHERE timestamp_ms < ?", cutoffMS); err != nil {
+		return err
+	}
+	cutoffMinute := cutoffMS / 60000
+	if _, err := tx.ExecContext(ctx, "DELETE FROM usage_minute_rollups WHERE minute < ?", cutoffMinute); err != nil {
+		return err
+	}
+	if cutoffMS%60000 == 0 {
+		return nil
+	}
+	// Rebuild only the boundary minute so deleted events cannot survive in its totals.
+	if _, err := tx.ExecContext(ctx, "DELETE FROM usage_minute_rollups WHERE minute = ?", cutoffMinute); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO usage_minute_rollups (
+		minute, provider, model, source, api_key_hash, api_key_mask, upstream_key, upstream_label,
+		requests, successes, failures, input_tokens, output_tokens, reasoning_tokens, cached_tokens,
+		cache_read_tokens, cache_creation_tokens, total_tokens, latency_sum_ms, ttft_sum_ms, ttft_count
+	) SELECT timestamp_ms / 60000, provider, model, source, api_key_hash, MAX(api_key_mask),
+		upstream_key, MAX(upstream_label), COUNT(*),
+		SUM(CASE WHEN failed = 0 THEN 1 ELSE 0 END), SUM(CASE WHEN failed != 0 THEN 1 ELSE 0 END),
+		SUM(input_tokens), SUM(output_tokens), SUM(reasoning_tokens), SUM(cached_tokens),
+		SUM(cache_read_tokens), SUM(cache_creation_tokens), SUM(total_tokens),
+		SUM(latency_ms), SUM(ttft_ms), SUM(CASE WHEN ttft_ms > 0 THEN 1 ELSE 0 END)
+		FROM usage_events WHERE timestamp_ms >= ? AND timestamp_ms < ?
+		GROUP BY timestamp_ms / 60000, provider, model, source, api_key_hash, upstream_key`, cutoffMS, (cutoffMinute+1)*60000)
+	return err
 }
 
 func (s *eventStore) status() storageStatus {
@@ -357,6 +388,9 @@ func (s *eventStore) statusSnapshot() storageStatus {
 		status.LastWriteAt = s.last.Format(time.RFC3339)
 	}
 	status.LastError = s.lastErr
+	if s.pruneErr != "" {
+		status.LastError = s.pruneErr
+	}
 	s.mu.RUnlock()
 	return status
 }
@@ -377,13 +411,28 @@ func (s *eventStore) setError(err error) {
 	if err == nil {
 		return
 	}
+	message := s.storageErrorMessage(err)
+	s.mu.Lock()
+	s.lastErr = message
+	s.mu.Unlock()
+}
+
+func (s *eventStore) setPruneError(err error) {
+	message := ""
+	if err != nil {
+		message = "retention cleanup: " + s.storageErrorMessage(err)
+	}
+	s.mu.Lock()
+	s.pruneErr = message
+	s.mu.Unlock()
+}
+
+func (s *eventStore) storageErrorMessage(err error) string {
 	message := err.Error()
 	if strings.Contains(strings.ToLower(message), s.path) {
 		message = strings.ReplaceAll(message, s.path, filepath.Base(s.path))
 	}
-	s.mu.Lock()
-	s.lastErr = message
-	s.mu.Unlock()
+	return message
 }
 
 func (s *eventStore) close() error {

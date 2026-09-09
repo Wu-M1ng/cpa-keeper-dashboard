@@ -30,6 +30,18 @@ type tokenTotals struct {
 	Total      int64 `json:"total"`
 }
 
+type costTotals struct {
+	Input      float64 `json:"input"`
+	Output     float64 `json:"output"`
+	CacheRead  float64 `json:"cache_read"`
+	CacheWrite float64 `json:"cache_write"`
+	Reasoning  float64 `json:"reasoning"`
+}
+
+func (cost costTotals) total() float64 {
+	return cost.Input + cost.Output + cost.CacheRead + cost.CacheWrite + cost.Reasoning
+}
+
 func validatePrices(prices []modelPrice) error {
 	if len(prices) > 2000 {
 		return errors.New("too many model prices")
@@ -184,6 +196,10 @@ func resolvePrice(model string, prices map[string]modelPrice) modelPrice {
 }
 
 func calculateCost(tokens tokenTotals, price modelPrice) float64 {
+	return calculateCostTotals(tokens, price).total()
+}
+
+func calculateCostTotals(tokens tokenTotals, price modelPrice) costTotals {
 	cacheRead := max64(0, tokens.CacheRead)
 	cacheWrite := max64(0, tokens.CacheWrite)
 	reasoning := max64(0, tokens.Reasoning)
@@ -197,12 +213,13 @@ func calculateCost(tokens tokenTotals, price modelPrice) float64 {
 	if reasoningRate == 0 {
 		reasoningRate = price.OutputPerMillion
 	}
-	units := float64(regularInput)*price.InputPerMillion +
-		float64(regularOutput)*price.OutputPerMillion +
-		float64(cacheRead)*price.CacheReadPerMillion +
-		float64(cacheWrite)*cacheWriteRate +
-		float64(reasoning)*reasoningRate
-	return units / 1_000_000
+	return costTotals{
+		Input:      float64(regularInput) * price.InputPerMillion / 1_000_000,
+		Output:     float64(regularOutput) * price.OutputPerMillion / 1_000_000,
+		CacheRead:  float64(cacheRead) * price.CacheReadPerMillion / 1_000_000,
+		CacheWrite: float64(cacheWrite) * cacheWriteRate / 1_000_000,
+		Reasoning:  float64(reasoning) * reasoningRate / 1_000_000,
+	}
 }
 
 func calculateStandardCost(tokens tokenTotals, price modelPrice) float64 {

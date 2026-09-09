@@ -187,6 +187,11 @@ func (r *pluginRuntime) runWriter() {
 }
 
 func (r *pluginRuntime) pruneExpired(now time.Time) error {
+	// Serialize the complete read-config/prune operation with settings updates.
+	// Otherwise a background task can capture the old retention value and run
+	// after a newer value has been committed.
+	r.settingsMu.Lock()
+	defer r.settingsMu.Unlock()
 	r.configMu.RLock()
 	retentionDays := r.config.RetentionDays
 	r.configMu.RUnlock()

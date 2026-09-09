@@ -139,7 +139,10 @@ func TestDashboardAssetsAreEmbeddedAndSelfContained(t *testing.T) {
 			t.Fatalf("dashboard JS retains stale-request or repeated-analysis behavior %q", forbidden)
 		}
 	}
-	for _, expected := range []string{"new AbortController()", "loadRequestID", "eventRequestID"} {
+	for _, expected := range []string{
+		"new AbortController()", "loadRequestID", "eventRequestID",
+		"drawerRequestID", "drawerController", "model.costs || {}",
+	} {
 		if !bytes.Contains(js.Body, []byte(expected)) {
 			t.Fatalf("dashboard JS is missing request race guard %q", expected)
 		}

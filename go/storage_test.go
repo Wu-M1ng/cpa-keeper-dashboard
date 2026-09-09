@@ -119,6 +119,94 @@ func TestStorageRetentionPrunesEventsAndRollups(t *testing.T) {
 	}
 }
 
+func TestStorageRetentionRecordsTransactionFailure(t *testing.T) {
+	store := openTestStore(t)
+	if err := store.close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.prune(30, time.Now()); err == nil {
+		t.Fatal("retention on a closed database must fail")
+	}
+	if status := store.statusSnapshot(); status.LastError == "" {
+		t.Fatal("retention transaction failure is missing from storage status")
+	}
+}
+
+func TestStorageRetentionErrorSurvivesWritesUntilRetry(t *testing.T) {
+	store := openTestStore(t)
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	if err := store.writeBatch([]usageEvent{fixtureEvent(now.AddDate(0, 0, -40), "expired", false, 100, 10)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`CREATE TRIGGER reject_retention BEFORE DELETE ON usage_minute_rollups
+		BEGIN SELECT RAISE(ABORT, 'forced retention failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.prune(30, now); err == nil {
+		t.Fatal("retention must report the failing delete")
+	}
+	if err := store.writeBatch([]usageEvent{fixtureEvent(now, "current", false, 200, 20)}); err != nil {
+		t.Fatal(err)
+	}
+	if status := store.status(); status.EventCount != 2 || status.RollupCount != 2 || status.LastError == "" {
+		t.Fatalf("normal usage erased the retention failure: %+v", status)
+	}
+	if _, err := store.db.Exec("DROP TRIGGER reject_retention"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.prune(30, now); err != nil {
+		t.Fatal(err)
+	}
+	if status := store.status(); status.EventCount != 1 || status.RollupCount != 1 || status.LastError != "" {
+		t.Fatalf("retention retry did not recover: %+v", status)
+	}
+}
+
+func TestStorageRetentionRebuildsPartialCutoffMinute(t *testing.T) {
+	for _, keepBoundaryEvent := range []bool{false, true} {
+		t.Run(map[bool]string{false: "fully expired minute", true: "partially expired minute"}[keepBoundaryEvent], func(t *testing.T) {
+			store := openTestStore(t)
+			now := time.Date(2026, 9, 9, 12, 0, 30, 0, chinaStandardTime)
+			cutoff := now.AddDate(0, 0, -30)
+			expired := fixtureEvent(cutoff.Add(-10*time.Second), "gpt", false, 100, 10)
+			current := fixtureEvent(now, "gpt", false, 300, 30)
+			retained := fixtureEvent(cutoff, "gpt", true, 200, 20)
+			retained.CacheCreationTokens = 7
+			retained.ReasoningTokens = 9
+			retained.TTFTMS = 0
+			events := []usageEvent{expired, current}
+			wantEvents, wantTokens := int64(1), current.TotalTokens
+			if keepBoundaryEvent {
+				events = append(events, retained)
+				wantEvents++
+				wantTokens += retained.TotalTokens
+			}
+			if err := store.writeBatch(events); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.prune(30, now); err != nil {
+				t.Fatal(err)
+			}
+			status := store.status()
+			if status.EventCount != wantEvents || status.RollupCount != wantEvents {
+				t.Fatalf("expired minute remains in storage: %+v, want %d", status, wantEvents)
+			}
+			var requests, tokens, cacheWrite, reasoning, failures, ttftCount int64
+			if err := store.db.QueryRow(`SELECT SUM(requests), SUM(total_tokens), SUM(cache_creation_tokens),
+				SUM(reasoning_tokens), SUM(failures), SUM(ttft_count) FROM usage_minute_rollups`).Scan(
+				&requests, &tokens, &cacheWrite, &reasoning, &failures, &ttftCount); err != nil {
+				t.Fatal(err)
+			}
+			if requests != wantEvents || tokens != wantTokens || ttftCount != 1 {
+				t.Fatalf("rollups disagree with retained events: requests=%d tokens=%d ttft_count=%d", requests, tokens, ttftCount)
+			}
+			if keepBoundaryEvent && (cacheWrite != 7 || reasoning != 9 || failures != 1) {
+				t.Fatalf("cutoff minute lost retained metrics: cache_write=%d reasoning=%d failures=%d", cacheWrite, reasoning, failures)
+			}
+		})
+	}
+}
+
 func TestStorageMigratesEndpointColumnWithoutLosingEvents(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.StoragePath = filepath.Join(t.TempDir(), "legacy.db")

@@ -32,8 +32,11 @@
     lastInterfacesData: null,
     loadRequestID: 0,
     eventRequestID: 0,
+    drawerRequestID: 0,
+    summary: null,
     loadController: null,
     eventController: null,
+    drawerController: null,
     drawerReturnFocus: null,
   };
   let autoRefreshTimer = 0;
@@ -166,6 +169,10 @@
   function bindRange() {
     $$('#range-control button').forEach((button) => button.addEventListener('click', () => {
       state.range = button.dataset.range;
+      state.drawerController?.abort();
+      state.drawerController = null;
+      state.drawerRequestID++;
+      closeDrawer(false);
       state.cache.clear();
       $$('#range-control button').forEach((item) => item.classList.toggle('is-active', item === button));
       state.eventPage = 1;
@@ -466,18 +473,6 @@
     $('#change-key').addEventListener('click', showAuthDialog);
   }
 
-  function bindDrawer() {
-    $('#detail-close').addEventListener('click', closeDrawer);
-    $('#drawer-scrim').addEventListener('click', closeDrawer);
-    $('#upstream-table').addEventListener('click', (event) => {
-      const button = event.target.closest('[data-upstream]');
-      if (button) openUpstream(button.dataset.upstream, button);
-    });
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && $('#detail-drawer').classList.contains('is-open')) closeDrawer();
-    });
-  }
-
   function bindAuth() {
     $('#auth-save').addEventListener('click', (event) => {
       event.preventDefault();
@@ -604,6 +599,7 @@
     state.pendingRequests += 1;
     try {
       const response = await fetch(endpoint, { ...options, headers });
+      if (options.signal?.aborted) throw namedError('AbortError', 'request aborted');
       if (response.status === 401) {
         sessionStorage.removeItem('usage-keeper-management-key');
         state.managementKey = '';
@@ -614,6 +610,7 @@
       }
       const contentType = response.headers.get('content-type') || '';
       const body = contentType.includes('json') ? await response.json() : await response.text();
+      if (options.signal?.aborted) throw namedError('AbortError', 'request aborted');
       if (!response.ok) {
         throw new Error(body?.error?.message || body?.error || `请求失败 (${response.status})`);
       }
@@ -659,9 +656,16 @@
     state.eventController = null;
     const eventRequestID = ++state.eventRequestID;
     const params = eventParams();
-    const summary = await cached('/summary', force, signal);
-    if (requestID !== state.loadRequestID || signal.aborted) return;
-    renderKPIs(summary.kpi || {}, summary.trend || []);
+      const summary = await cached('/summary', force, signal);
+      if (requestID !== state.loadRequestID || signal.aborted) return;
+      state.summary = summary;
+      const trendCaption = $('#trend-caption');
+      if (trendCaption && summary.range) {
+        const from = formatDateTime(summary.range.from_ms);
+        const to = formatDateTime(summary.range.to_ms);
+        trendCaption.textContent = `统计范围：${from} – ${to}（中国标准时间） · 输入、输出、缓存与命中率趋势`;
+      }
+      renderKPIs(summary.kpi || {}, summary.trend || []);
     renderTrend(summary.trend || []);
     renderRuntime(summary.runtime || {});
     renderHealth(summary.health || []);
@@ -1118,6 +1122,17 @@
     const reasoning = tokens.reasoning || 0;
     const totalTokens = tokens.total || (regularInput + regularOutput + cacheRead + cacheWrite + reasoning) || 0;
     const totalCost = (models || []).reduce((sum, m) => sum + Number(m.cost_usd || 0), 0) || state.summary?.kpi?.cost_usd || 0;
+    let hasCategoryCosts = false;
+    const categoryCosts = (models || []).reduce((totals, model) => {
+      const costs = model.costs || {};
+      hasCategoryCosts = hasCategoryCosts || Object.prototype.hasOwnProperty.call(model, 'costs');
+      totals.input += Number(costs.input || 0);
+      totals.output += Number(costs.output || 0);
+      totals.cache_read += Number(costs.cache_read || 0);
+      totals.cache_write += Number(costs.cache_write || 0);
+      totals.reasoning += Number(costs.reasoning || 0);
+      return totals;
+    }, { input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 });
 
     let savedCost = Number(state.summary?.kpi?.saved_cost_usd || 0);
     if (!savedCost && (models || []).length) {
@@ -1147,7 +1162,7 @@
       p.idx = String(idx);
       p.pctNum = (p.tokens / sumTokens * 100);
       p.pct = p.pctNum.toFixed(2) + '%';
-      p.cost = totalCost * (p.tokens / sumTokens);
+      p.cost = hasCategoryCosts ? (categoryCosts[p.key] || 0) : totalCost * (p.tokens / sumTokens);
     });
 
     const savingsBanner = `
@@ -1781,6 +1796,10 @@
   }
 
   async function openUpstream(key, trigger) {
+    state.drawerController?.abort();
+    const controller = new AbortController();
+    const requestID = ++state.drawerRequestID;
+    state.drawerController = controller;
     const drawer = $('#detail-drawer');
     state.drawerReturnFocus = trigger || document.activeElement;
     drawer.inert = false;
@@ -1791,7 +1810,8 @@
     $('#detail-content').innerHTML = '<div class="skeleton" style="height:200px"></div>';
     $('#detail-close').focus();
     try {
-      const data = await api(`/upstream?range=${encodeURIComponent(state.range)}&key=${encodeURIComponent(key)}`);
+      const data = await api(`/upstream?range=${encodeURIComponent(state.range)}&key=${encodeURIComponent(key)}`, { signal: controller.signal });
+      if (requestID !== state.drawerRequestID || controller.signal.aborted) return;
       $('#detail-title').textContent = data.name || key;
       const summary = data.summary || {};
       const models = data.models || [];
@@ -1819,8 +1839,11 @@
         </section>
       `;
     } catch (error) {
+      if (requestID !== state.drawerRequestID || controller.signal.aborted || error.name === 'AbortError') return;
       $('#detail-title').textContent = '加载失败';
       $('#detail-content').textContent = error.message;
+    } finally {
+      if (requestID === state.drawerRequestID) state.drawerController = null;
     }
   }
 
@@ -1850,6 +1873,9 @@
   }
 
   function closeDrawer(restoreFocus = true) {
+    state.drawerController?.abort();
+    state.drawerController = null;
+    state.drawerRequestID += 1;
     const drawer = $('#detail-drawer');
     drawer.classList.remove('is-open');
     drawer.setAttribute('aria-hidden', 'true');

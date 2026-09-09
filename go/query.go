@@ -12,7 +12,9 @@ import (
 	"time"
 )
 
-var chinaStandardTime = time.FixedZone("CST", 8*60*60)
+const chinaTimeOffsetMinutes = 8 * 60
+
+var chinaStandardTime = time.FixedZone("CST", chinaTimeOffsetMinutes*60)
 
 type timeRange struct {
 	FromMS          int64  `json:"from_ms"`
@@ -88,6 +90,7 @@ type dimensionStat struct {
 	SavedCostUSD float64     `json:"saved_cost_usd"`
 	AvgLatencyMS float64     `json:"avg_latency_ms"`
 	Tokens       tokenTotals `json:"tokens"`
+	Costs        costTotals  `json:"costs"`
 	Models       int         `json:"models,omitempty"`
 
 	latencySum int64
@@ -229,6 +232,22 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 	if err != nil {
 		return summaryResponse{}, err
 	}
+	if rng.Label == "all" {
+		firstTimestamp, err := firstStoredTimestamp(ctx, store, rng.ToMS)
+		if err != nil {
+			return summaryResponse{}, err
+		}
+		if firstTimestamp == 0 {
+			rng.FromMS = rng.ToMS
+		} else {
+			rng.FromMS = firstTimestamp
+		}
+		// Keep short histories comparable with 30d; only long histories need weekly buckets.
+		rng.IntervalMinutes = 1440
+		if time.Duration(rng.ToMS-rng.FromMS)*time.Millisecond > 45*24*time.Hour {
+			rng.IntervalMinutes = 10080
+		}
+	}
 	prices, err := loadPriceMap(ctx, store)
 	if err != nil {
 		return summaryResponse{}, err
@@ -305,6 +324,13 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 		result.Trend[i].HitRate = ratio(result.Trend[i].CacheRead, result.Trend[i].Input)
 	}
 	sort.Slice(result.Trend, func(i, j int) bool { return result.Trend[i].TimestampMS < result.Trend[j].TimestampMS })
+	if rng.Label == "all" && len(result.Trend) > 0 {
+		// A partial first week must not imply usage before the first retained date.
+		firstDayMS := timeBucketMinute(rng.FromMS/60000, 1440) * 60000
+		if result.Trend[0].TimestampMS < firstDayMS {
+			result.Trend[0].TimestampMS = firstDayMS
+		}
+	}
 
 	healthRange := chinaHealthRange(now)
 	healthInterval := healthRange.IntervalMinutes
@@ -327,6 +353,36 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 	return result, nil
 }
 
+// Return the earliest event visible at the requested end time.  The raw event
+// table preserves millisecond precision; a rollup-only legacy database can
+// only provide the start of its first minute.
+func firstStoredTimestamp(ctx context.Context, store *eventStore, toMS int64) (int64, error) {
+	available, err := usageEventsTableAvailable(ctx, store)
+	if err != nil {
+		return 0, err
+	}
+	if available {
+		var timestamp sql.NullInt64
+		if err := store.db.QueryRowContext(ctx,
+			"SELECT MIN(timestamp_ms) FROM usage_events WHERE timestamp_ms <= ?", toMS).Scan(&timestamp); err != nil {
+			return 0, err
+		}
+		if timestamp.Valid {
+			return timestamp.Int64, nil
+		}
+		return 0, nil
+	}
+	var minute sql.NullInt64
+	if err := store.db.QueryRowContext(ctx, `SELECT MIN(minute) FROM usage_minute_rollups
+		WHERE minute <= ?`, toMS/60000).Scan(&minute); err != nil {
+		return 0, err
+	}
+	if !minute.Valid {
+		return 0, nil
+	}
+	return minute.Int64 * 60000, nil
+}
+
 func effectiveSummaryDuration(rng timeRange, rows []aggregateRow) time.Duration {
 	if rng.Label != "all" || len(rows) == 0 {
 		return time.Duration(rng.ToMS-rng.FromMS) * time.Millisecond
@@ -347,13 +403,25 @@ func effectiveSummaryDuration(rng timeRange, rows []aggregateRow) time.Duration 
 	return time.Duration(minutes) * time.Minute
 }
 
+func timeBucketOffset(interval int64) int64 {
+	offset := int64(chinaTimeOffsetMinutes)
+	if interval == 10080 {
+		// The Unix epoch is a Thursday; align weeks to Monday in China time.
+		offset += 3 * 1440
+	}
+	return offset
+}
+
+func timeBucketMinute(minute, interval int64) int64 {
+	return minute - ((minute+timeBucketOffset(interval))%interval+interval)%interval
+}
+
 func appendDenseTrend(target *[]trendPoint, buckets map[int64]*trendPoint, rng timeRange, interval int64) {
 	if len(buckets) == 0 {
 		return
 	}
-	start, end := rng.FromMS/60000, rng.ToMS/60000
-	start = (start / interval) * interval
-	end = (end / interval) * interval
+	start := timeBucketMinute(rng.FromMS/60000, interval)
+	end := timeBucketMinute(rng.ToMS/60000, interval)
 	if end-start > 600 || rng.Label == "all" {
 		keys := make([]int64, 0, len(buckets))
 		for key := range buckets {
@@ -372,9 +440,8 @@ func appendDenseTrend(target *[]trendPoint, buckets map[int64]*trendPoint, rng t
 }
 
 func appendDenseHealth(target *[]healthPoint, buckets map[int64]*healthPoint, rng timeRange, interval int64) {
-	start, end := rng.FromMS/60000, rng.ToMS/60000
-	start = (start / interval) * interval
-	end = (end / interval) * interval
+	start := timeBucketMinute(rng.FromMS/60000, interval)
+	end := timeBucketMinute(rng.ToMS/60000, interval)
 	for bucket := start; bucket <= end; bucket += interval {
 		point := buckets[bucket]
 		if point == nil {
@@ -471,8 +538,8 @@ func queryUpstreamDetail(ctx context.Context, store *eventStore, key string, que
 		mergeDimension(&result.Summary, model)
 	}
 	var storedName, provider string
-	_ = store.db.QueryRowContext(ctx, `SELECT MAX(source), MAX(provider) FROM usage_minute_rollups
-		WHERE upstream_key = ? AND minute BETWEEN ? AND ?`, key, rng.FromMS/60000, rng.ToMS/60000).Scan(&storedName, &provider)
+	_ = store.db.QueryRowContext(ctx, `SELECT MAX(source), MAX(provider) FROM usage_events
+		WHERE upstream_key = ? AND timestamp_ms BETWEEN ? AND ?`, key, rng.FromMS, rng.ToMS).Scan(&storedName, &provider)
 	result.Name = maskedProviderCredentialDisplay(provider, storedName, key)
 	result.Provider = provider
 	result.Summary.Key, result.Summary.Name = key, result.Name
@@ -486,36 +553,175 @@ func queryUpstreamDetail(ctx context.Context, store *eventStore, key string, que
 	return result, nil
 }
 
+type exactRange struct {
+	FromMS int64
+	ToMS   int64
+}
+
+func splitAggregateRange(rng timeRange) (int64, int64, []exactRange) {
+	fromMinute := rng.FromMS / 60000
+	toMinute := rng.ToMS / 60000
+	fullFrom := fromMinute
+	if rng.FromMS%60000 != 0 {
+		fullFrom++
+	}
+	fullTo := toMinute
+	if rng.ToMS%60000 != 59999 {
+		fullTo--
+	}
+	if fullFrom > fullTo {
+		return fullFrom, fullTo, []exactRange{{FromMS: rng.FromMS, ToMS: rng.ToMS}}
+	}
+	boundaries := make([]exactRange, 0, 2)
+	if rng.FromMS < fullFrom*60000 {
+		boundaries = append(boundaries, exactRange{FromMS: rng.FromMS, ToMS: fullFrom*60000 - 1})
+	}
+	afterFull := (fullTo + 1) * 60000
+	if afterFull <= rng.ToMS {
+		boundaries = append(boundaries, exactRange{FromMS: afterFull, ToMS: rng.ToMS})
+	}
+	return fullFrom, fullTo, boundaries
+}
+
+// Older databases can be opened with only the minute rollup table available
+// (for example, while a migration is in progress).  In that case an exact
+// edge query cannot be run, so callers may deliberately fall back to the
+// complete rollup minute.  Normal databases always have usage_events.
+func usageEventsTableAvailable(ctx context.Context, store *eventStore) (bool, error) {
+	var name string
+	err := store.db.QueryRowContext(ctx,
+		"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'usage_events'").Scan(&name)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, err
+	default:
+		return name == "usage_events", nil
+	}
+}
+
+func isMissingUsageEventsTable(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "no such table") && strings.Contains(message, "usage_events")
+}
+
+func exactRangeWhere(column string, ranges []exactRange) (string, []any) {
+	conditions := make([]string, 0, len(ranges))
+	args := make([]any, 0, len(ranges)*2)
+	for _, rng := range ranges {
+		conditions = append(conditions, column+" BETWEEN ? AND ?")
+		args = append(args, rng.FromMS, rng.ToMS)
+	}
+	return "(" + strings.Join(conditions, " OR ") + ")", args
+}
+
 func queryAggregateRows(ctx context.Context, store *eventStore, rng timeRange, interval int64, extraWhere string, extraArgs []any) ([]aggregateRow, error) {
-	where := "minute BETWEEN ? AND ?"
-	args := []any{interval, interval, rng.FromMS / 60000, rng.ToMS / 60000}
-	if extraWhere != "" {
-		where += " AND " + extraWhere
-		args = append(args, extraArgs...)
-	}
-	query := `SELECT (minute / ?) * ? AS bucket, model,
-		SUM(requests), SUM(successes), SUM(failures), SUM(input_tokens),
-		SUM(output_tokens), SUM(reasoning_tokens), SUM(cached_tokens),
-		SUM(cache_read_tokens), SUM(cache_creation_tokens), SUM(total_tokens),
-		SUM(latency_sum_ms), SUM(ttft_sum_ms), SUM(ttft_count)
-		FROM usage_minute_rollups WHERE ` + where + ` GROUP BY bucket, model ORDER BY bucket`
-	rows, err := store.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := make([]aggregateRow, 0)
-	for rows.Next() {
-		var row aggregateRow
-		if err := rows.Scan(&row.Bucket, &row.Model, &row.Requests, &row.Successes, &row.Failures,
-			&row.Tokens.Input, &row.Tokens.Output, &row.Tokens.Reasoning, &row.Tokens.Cached,
-			&row.Tokens.CacheRead, &row.Tokens.CacheWrite, &row.Tokens.Total,
-			&row.LatencySumMS, &row.TTFTSumMS, &row.TTFTCount); err != nil {
+	fullFrom, fullTo, boundaries := splitAggregateRange(rng)
+	if rng.Label == "all" && len(boundaries) > 0 {
+		available, err := usageEventsTableAvailable(ctx, store)
+		if err != nil {
 			return nil, err
 		}
-		result = append(result, row)
+		if !available {
+			// Rollup-only legacy stores have no millisecond detail for the
+			// current edge minute. Treat that minute as complete, matching the
+			// historical all-range behavior.
+			fullTo = rng.ToMS / 60000
+			boundaries = nil
+		}
 	}
-	return result, rows.Err()
+	type aggregateKey struct {
+		bucket int64
+		model  string
+	}
+	merged := make(map[aggregateKey]*aggregateRow)
+	consume := func(rows *sql.Rows) error {
+		defer rows.Close()
+		for rows.Next() {
+			var row aggregateRow
+			if err := rows.Scan(&row.Bucket, &row.Model, &row.Requests, &row.Successes, &row.Failures,
+				&row.Tokens.Input, &row.Tokens.Output, &row.Tokens.Reasoning, &row.Tokens.Cached,
+				&row.Tokens.CacheRead, &row.Tokens.CacheWrite, &row.Tokens.Total,
+				&row.LatencySumMS, &row.TTFTSumMS, &row.TTFTCount); err != nil {
+				return err
+			}
+			key := aggregateKey{bucket: row.Bucket, model: row.Model}
+			current := merged[key]
+			if current == nil {
+				copyOfRow := row
+				merged[key] = &copyOfRow
+				continue
+			}
+			current.Requests += row.Requests
+			current.Successes += row.Successes
+			current.Failures += row.Failures
+			addTokens(&current.Tokens, row.Tokens)
+			current.LatencySumMS += row.LatencySumMS
+			current.TTFTSumMS += row.TTFTSumMS
+			current.TTFTCount += row.TTFTCount
+		}
+		return rows.Err()
+	}
+	if fullFrom <= fullTo {
+		where := "minute BETWEEN ? AND ?"
+		args := []any{timeBucketOffset(interval), interval, interval, interval, fullFrom, fullTo}
+		if extraWhere != "" {
+			where += " AND " + extraWhere
+			args = append(args, extraArgs...)
+		}
+		rows, err := store.db.QueryContext(ctx, `SELECT minute - ((minute + ?) % ? + ?) % ? AS bucket, model,
+			SUM(requests), SUM(successes), SUM(failures), SUM(input_tokens),
+			SUM(output_tokens), SUM(reasoning_tokens), SUM(cached_tokens),
+			SUM(cache_read_tokens), SUM(cache_creation_tokens), SUM(total_tokens),
+			SUM(latency_sum_ms), SUM(ttft_sum_ms), SUM(ttft_count)
+			FROM usage_minute_rollups WHERE `+where+` GROUP BY bucket, model`, args...)
+		if err != nil {
+			return nil, err
+		}
+		if err := consume(rows); err != nil {
+			return nil, err
+		}
+	}
+	if len(boundaries) > 0 {
+		where, rangeArgs := exactRangeWhere("timestamp_ms", boundaries)
+		args := []any{timeBucketOffset(interval), interval, interval, interval}
+		args = append(args, rangeArgs...)
+		if extraWhere != "" {
+			where += " AND " + extraWhere
+			args = append(args, extraArgs...)
+		}
+		rows, err := store.db.QueryContext(ctx, `SELECT timestamp_ms / 60000 - (((timestamp_ms / 60000 + ?) % ? + ?) % ?) AS bucket, model,
+			COUNT(*), SUM(CASE WHEN failed = 0 THEN 1 ELSE 0 END),
+			SUM(CASE WHEN failed != 0 THEN 1 ELSE 0 END), SUM(input_tokens),
+			SUM(output_tokens), SUM(reasoning_tokens), SUM(cached_tokens),
+			SUM(cache_read_tokens), SUM(cache_creation_tokens), SUM(total_tokens),
+			SUM(latency_ms), SUM(ttft_ms), SUM(CASE WHEN ttft_ms > 0 THEN 1 ELSE 0 END)
+			FROM usage_events WHERE `+where+` GROUP BY bucket, model`, args...)
+		if err != nil {
+			if !(rng.Label == "all" && isMissingUsageEventsTable(err)) {
+				return nil, err
+			}
+		} else {
+			if err := consume(rows); err != nil {
+				return nil, err
+			}
+		}
+	}
+	result := make([]aggregateRow, 0, len(merged))
+	for _, row := range merged {
+		result = append(result, *row)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Bucket == result[j].Bucket {
+			return result[i].Model < result[j].Model
+		}
+		return result[i].Bucket < result[j].Bucket
+	})
+	return result, nil
 }
 
 func queryDimension(ctx context.Context, store *eventStore, rng timeRange, keyColumn, labelColumn, filterColumn, filterValue string, prices map[string]modelPrice) ([]dimensionStat, error) {
@@ -523,57 +729,99 @@ func queryDimension(ctx context.Context, store *eventStore, rng timeRange, keyCo
 	if !allowed[keyColumn] || !allowed[labelColumn] || (filterColumn != "" && !allowed[filterColumn]) {
 		return nil, errors.New("unsupported statistics dimension")
 	}
-	where := "minute BETWEEN ? AND ?"
-	args := []any{rng.FromMS / 60000, rng.ToMS / 60000}
-	if filterColumn != "" {
-		where += " AND " + filterColumn + " = ?"
-		args = append(args, filterValue)
-	}
-	statement := fmt.Sprintf(`SELECT %s, MAX(%s), provider, model, SUM(requests), SUM(successes),
-		SUM(failures), SUM(input_tokens), SUM(output_tokens), SUM(reasoning_tokens),
-		SUM(cached_tokens), SUM(cache_read_tokens), SUM(cache_creation_tokens),
-		SUM(total_tokens), SUM(latency_sum_ms)
-		FROM usage_minute_rollups WHERE %s GROUP BY %s, provider, model`, keyColumn, labelColumn, where, keyColumn)
-	rows, err := store.db.QueryContext(ctx, statement, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 	byKey := make(map[string]*dimensionStat)
-	for rows.Next() {
-		var key, label, provider, model string
-		var row dimensionStat
-		if err := rows.Scan(&key, &label, &provider, &model, &row.Requests, &row.Successes, &row.Failures,
-			&row.Tokens.Input, &row.Tokens.Output, &row.Tokens.Reasoning, &row.Tokens.Cached,
-			&row.Tokens.CacheRead, &row.Tokens.CacheWrite, &row.Tokens.Total, &row.latencySum); err != nil {
+	consume := func(rows *sql.Rows) error {
+		defer rows.Close()
+		for rows.Next() {
+			var key, label, provider, model string
+			var row dimensionStat
+			if err := rows.Scan(&key, &label, &provider, &model, &row.Requests, &row.Successes, &row.Failures,
+				&row.Tokens.Input, &row.Tokens.Output, &row.Tokens.Reasoning, &row.Tokens.Cached,
+				&row.Tokens.CacheRead, &row.Tokens.CacheWrite, &row.Tokens.Total, &row.latencySum); err != nil {
+				return err
+			}
+			groupKey := key
+			if keyColumn == "source" {
+				groupKey = provider + "\x00" + key
+			}
+			stat := byKey[groupKey]
+			if stat == nil {
+				stat = &dimensionStat{Key: key, Name: label, provider: provider, modelSet: make(map[string]struct{})}
+				byKey[groupKey] = stat
+			}
+			stat.Requests += row.Requests
+			stat.Successes += row.Successes
+			stat.Failures += row.Failures
+			stat.latencySum += row.latencySum
+			addTokens(&stat.Tokens, row.Tokens)
+			stat.TotalTokens = stat.Tokens.Total
+			price := resolvePrice(model, prices)
+			costs := calculateCostTotals(row.Tokens, price)
+			actualCost := costs.total()
+			standardCost := calculateStandardCost(row.Tokens, price)
+			addCosts(&stat.Costs, costs)
+			stat.CostUSD += actualCost
+			if saved := standardCost - actualCost; saved > 0 {
+				stat.SavedCostUSD += saved
+			}
+			stat.modelSet[model] = struct{}{}
+		}
+		return rows.Err()
+	}
+	fullFrom, fullTo, boundaries := splitAggregateRange(rng)
+	if rng.Label == "all" && len(boundaries) > 0 {
+		available, err := usageEventsTableAvailable(ctx, store)
+		if err != nil {
 			return nil, err
 		}
-		groupKey := key
-		if keyColumn == "source" {
-			groupKey = provider + "\x00" + key
+		if !available {
+			// See queryAggregateRows: without event detail the edge rollup
+			// is the only available representation of the all-time range.
+			fullTo = rng.ToMS / 60000
+			boundaries = nil
 		}
-		stat := byKey[groupKey]
-		if stat == nil {
-			stat = &dimensionStat{Key: key, Name: label, provider: provider, modelSet: make(map[string]struct{})}
-			byKey[groupKey] = stat
-		}
-		stat.Requests += row.Requests
-		stat.Successes += row.Successes
-		stat.Failures += row.Failures
-		stat.latencySum += row.latencySum
-		addTokens(&stat.Tokens, row.Tokens)
-		stat.TotalTokens = stat.Tokens.Total
-		price := resolvePrice(model, prices)
-		actualCost := calculateCost(row.Tokens, price)
-		standardCost := calculateStandardCost(row.Tokens, price)
-		stat.CostUSD += actualCost
-		if saved := standardCost - actualCost; saved > 0 {
-			stat.SavedCostUSD += saved
-		}
-		stat.modelSet[model] = struct{}{}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	if fullFrom <= fullTo {
+		where := "minute BETWEEN ? AND ?"
+		args := []any{fullFrom, fullTo}
+		if filterColumn != "" {
+			where += " AND " + filterColumn + " = ?"
+			args = append(args, filterValue)
+		}
+		statement := fmt.Sprintf(`SELECT %s, MAX(%s), provider, model, SUM(requests), SUM(successes),
+			SUM(failures), SUM(input_tokens), SUM(output_tokens), SUM(reasoning_tokens),
+			SUM(cached_tokens), SUM(cache_read_tokens), SUM(cache_creation_tokens),
+			SUM(total_tokens), SUM(latency_sum_ms)
+			FROM usage_minute_rollups WHERE %s GROUP BY %s, provider, model`, keyColumn, labelColumn, where, keyColumn)
+		rows, err := store.db.QueryContext(ctx, statement, args...)
+		if err != nil {
+			return nil, err
+		}
+		if err := consume(rows); err != nil {
+			return nil, err
+		}
+	}
+	if len(boundaries) > 0 {
+		where, args := exactRangeWhere("timestamp_ms", boundaries)
+		if filterColumn != "" {
+			where += " AND " + filterColumn + " = ?"
+			args = append(args, filterValue)
+		}
+		statement := fmt.Sprintf(`SELECT %s, MAX(%s), provider, model, COUNT(*),
+			SUM(CASE WHEN failed = 0 THEN 1 ELSE 0 END), SUM(CASE WHEN failed != 0 THEN 1 ELSE 0 END),
+			SUM(input_tokens), SUM(output_tokens), SUM(reasoning_tokens), SUM(cached_tokens),
+			SUM(cache_read_tokens), SUM(cache_creation_tokens), SUM(total_tokens), SUM(latency_ms)
+			FROM usage_events WHERE %s GROUP BY %s, provider, model`, keyColumn, labelColumn, where, keyColumn)
+		rows, err := store.db.QueryContext(ctx, statement, args...)
+		if err != nil {
+			if !(rng.Label == "all" && isMissingUsageEventsTable(err)) {
+				return nil, err
+			}
+		} else {
+			if err := consume(rows); err != nil {
+				return nil, err
+			}
+		}
 	}
 	result := make([]dimensionStat, 0, len(byKey))
 	for _, stat := range byKey {
@@ -599,7 +847,14 @@ const eventColumns = `id, timestamp_ms, provider, executor_type, model, alias, e
 
 func queryEvents(ctx context.Context, store *eventStore, filter eventFilter) (eventsPage, error) {
 	normalizeEventFilter(&filter)
-	where, args := eventWhere(filter)
+	priceMap, err := loadPriceMap(ctx, store)
+	if err != nil {
+		return eventsPage{}, err
+	}
+	where, args, err := eventWhere(ctx, store, filter)
+	if err != nil {
+		return eventsPage{}, err
+	}
 	var total int64
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_events "+where, args...).Scan(&total); err != nil {
 		return eventsPage{}, err
@@ -610,7 +865,6 @@ func queryEvents(ctx context.Context, store *eventStore, filter eventFilter) (ev
 		return eventsPage{}, err
 	}
 	defer rows.Close()
-	priceMap, _ := loadPriceMap(ctx, store)
 	events := make([]usageEvent, 0, filter.PageSize)
 	for rows.Next() {
 		event, err := scanEvent(rows)
@@ -618,36 +872,26 @@ func queryEvents(ctx context.Context, store *eventStore, filter eventFilter) (ev
 			return eventsPage{}, err
 		}
 		redactEventForManagement(&event)
-		if priceMap != nil {
-			price := resolvePrice(event.Model, priceMap)
-			cacheRead := max64(0, event.CacheReadTokens)
-			cacheWrite := max64(0, event.CacheCreationTokens)
-			reasoning := max64(0, event.ReasoningTokens)
-			regularInput := max64(0, event.InputTokens-cacheRead-cacheWrite)
-			regularOutput := max64(0, event.OutputTokens-reasoning)
-
-			cacheWriteRate := price.CacheWritePerMillion
-			if cacheWriteRate == 0 {
-				cacheWriteRate = price.InputPerMillion
-			}
-			reasoningRate := price.ReasoningPerMillion
-			if reasoningRate == 0 {
-				reasoningRate = price.OutputPerMillion
-			}
-
-			event.InputPrice = price.InputPerMillion
-			event.OutputPrice = price.OutputPerMillion
-			event.CacheReadPrice = price.CacheReadPerMillion
-			event.CacheWritePrice = cacheWriteRate
-			event.ReasoningPrice = reasoningRate
-
-			event.InputCost = float64(regularInput) * price.InputPerMillion / 1_000_000
-			event.OutputCost = float64(regularOutput) * price.OutputPerMillion / 1_000_000
-			event.CacheReadCost = float64(cacheRead) * price.CacheReadPerMillion / 1_000_000
-			event.CacheWriteCost = float64(cacheWrite) * cacheWriteRate / 1_000_000
-			event.ReasoningCost = float64(reasoning) * reasoningRate / 1_000_000
-			event.CostUSD = event.InputCost + event.OutputCost + event.CacheReadCost + event.CacheWriteCost + event.ReasoningCost
+		price := resolvePrice(event.Model, priceMap)
+		costs := calculateCostTotals(tokenTotals{
+			Input: event.InputTokens, Output: event.OutputTokens,
+			CacheRead: event.CacheReadTokens, CacheWrite: event.CacheCreationTokens,
+			Reasoning: event.ReasoningTokens, Total: event.TotalTokens,
+		}, price)
+		cacheWriteRate := price.CacheWritePerMillion
+		if cacheWriteRate == 0 {
+			cacheWriteRate = price.InputPerMillion
 		}
+		reasoningRate := price.ReasoningPerMillion
+		if reasoningRate == 0 {
+			reasoningRate = price.OutputPerMillion
+		}
+		event.InputPrice, event.OutputPrice = price.InputPerMillion, price.OutputPerMillion
+		event.CacheReadPrice, event.CacheWritePrice = price.CacheReadPerMillion, cacheWriteRate
+		event.ReasoningPrice = reasoningRate
+		event.InputCost, event.OutputCost = costs.Input, costs.Output
+		event.CacheReadCost, event.CacheWriteCost = costs.CacheRead, costs.CacheWrite
+		event.ReasoningCost, event.CostUSD = costs.Reasoning, costs.total()
 		events = append(events, event)
 	}
 	pages := 0
@@ -700,6 +944,7 @@ func mergeDimensionStatsByName(stats []dimensionStat, keyPrefix string) []dimens
 		current.Failures += stat.Failures
 		current.CostUSD += stat.CostUSD
 		current.SavedCostUSD += stat.SavedCostUSD
+		addCosts(&current.Costs, stat.Costs)
 		current.latencySum += stat.latencySum
 		addTokens(&current.Tokens, stat.Tokens)
 		for model := range stat.modelSet {
@@ -793,7 +1038,7 @@ func normalizeEventFilter(filter *eventFilter) {
 	}
 }
 
-func eventWhere(filter eventFilter) (string, []any) {
+func eventWhere(ctx context.Context, store *eventStore, filter eventFilter) (string, []any, error) {
 	conditions := []string{"1=1"}
 	args := make([]any, 0, 10)
 	if filter.FromMS > 0 {
@@ -806,12 +1051,28 @@ func eventWhere(filter eventFilter) (string, []any) {
 	}
 	filters := []struct{ value, column string }{
 		{filter.Model, "model"}, {filter.Provider, "provider"},
-		{filter.APIKeyHash, "api_key_hash"}, {filter.Upstream, "upstream_key"},
+		{filter.Upstream, "upstream_key"},
 	}
 	for _, item := range filters {
 		if item.value != "" {
 			conditions = append(conditions, item.column+" = ?")
 			args = append(args, item.value)
+		}
+	}
+	if filter.APIKeyHash != "" {
+		apiKeyHashes, err := resolveAPIKeyFilter(ctx, store, filter.APIKeyHash)
+		if err != nil {
+			return "", nil, err
+		}
+		if len(apiKeyHashes) == 0 {
+			conditions = append(conditions, "0=1")
+		} else {
+			placeholders := make([]string, len(apiKeyHashes))
+			for i, hash := range apiKeyHashes {
+				placeholders[i] = "?"
+				args = append(args, hash)
+			}
+			conditions = append(conditions, "api_key_hash IN ("+strings.Join(placeholders, ",")+")")
 		}
 	}
 	if filter.Status == "success" {
@@ -826,7 +1087,29 @@ func eventWhere(filter eventFilter) (string, []any) {
 			args = append(args, needle)
 		}
 	}
-	return "WHERE " + strings.Join(conditions, " AND "), args
+	return "WHERE " + strings.Join(conditions, " AND "), args, nil
+}
+
+func resolveAPIKeyFilter(ctx context.Context, store *eventStore, value string) ([]string, error) {
+	if !strings.HasPrefix(value, "key-") {
+		return []string{value}, nil
+	}
+	rows, err := store.db.QueryContext(ctx, "SELECT DISTINCT api_key_hash FROM usage_events")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var hashes []string
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			return nil, err
+		}
+		if publicIdentifier("key", hash) == value {
+			hashes = append(hashes, hash)
+		}
+	}
+	return hashes, rows.Err()
 }
 
 func addTokens(target *tokenTotals, value tokenTotals) {
@@ -839,12 +1122,21 @@ func addTokens(target *tokenTotals, value tokenTotals) {
 	target.Total += value.Total
 }
 
+func addCosts(target *costTotals, value costTotals) {
+	target.Input += value.Input
+	target.Output += value.Output
+	target.CacheRead += value.CacheRead
+	target.CacheWrite += value.CacheWrite
+	target.Reasoning += value.Reasoning
+}
+
 func mergeDimension(target *dimensionStat, value dimensionStat) {
 	target.Requests += value.Requests
 	target.Successes += value.Successes
 	target.Failures += value.Failures
 	target.CostUSD += value.CostUSD
 	target.SavedCostUSD += value.SavedCostUSD
+	addCosts(&target.Costs, value.Costs)
 	target.latencySum += int64(value.AvgLatencyMS * float64(value.Requests))
 	addTokens(&target.Tokens, value.Tokens)
 	target.TotalTokens = target.Tokens.Total

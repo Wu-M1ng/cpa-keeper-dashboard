@@ -114,9 +114,14 @@ func handleManagement(request managementRequest) managementResponse {
 		if len(request.Body) == 0 || json.Unmarshal(request.Body, &payload) != nil {
 			return errorResponse(http.StatusBadRequest, "invalid_backup", "备份 JSON 无效")
 		}
+		runtime.settingsMu.Lock()
+		defer runtime.settingsMu.Unlock()
 		result, err := importBackup(ctx, runtime.store, payload)
 		if err == nil {
 			runtime.readCache.clear()
+		}
+		if errors.Is(err, errInvalidBackup) {
+			return errorResponse(http.StatusBadRequest, "invalid_backup", err.Error())
 		}
 		return queryJSON(result, err)
 	default:
@@ -215,20 +220,26 @@ func updateSettings(ctx context.Context, runtime *pluginRuntime, body []byte) ma
 	if err != nil {
 		return internalError()
 	}
+	defer tx.Rollback()
+	now := managementNow()
 	for key, value := range values {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO plugin_settings(key, value, updated_at_ms) VALUES (?, ?, ?)
-			ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at_ms=excluded.updated_at_ms`, key, strconv.Itoa(value), time.Now().UTC().UnixMilli()); err != nil {
-			_ = tx.Rollback()
+			ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at_ms=excluded.updated_at_ms`, key, strconv.Itoa(value), now.UnixMilli()); err != nil {
 			return internalError()
 		}
 	}
+	if err := pruneEventsTx(ctx, tx, cfg.RetentionDays, now); err != nil {
+		runtime.store.setPruneError(err)
+		return errorResponse(http.StatusInternalServerError, "retention_cleanup_failed", "清理过期数据失败，设置未保存，请稍后重试")
+	}
 	if err := tx.Commit(); err != nil {
+		runtime.store.setPruneError(err)
 		return internalError()
 	}
+	runtime.store.setPruneError(nil)
 	runtime.configMu.Lock()
 	runtime.config = cfg
 	runtime.configMu.Unlock()
-	_ = runtime.store.prune(cfg.RetentionDays, time.Now().UTC())
 	runtime.readCache.clear()
 	return jsonResponse(http.StatusOK, currentSettings(runtime))
 }
@@ -252,7 +263,7 @@ func queryJSON(value any, err error) managementResponse {
 		return jsonResponse(http.StatusOK, value)
 	}
 	message := err.Error()
-	if strings.Contains(message, "invalid") || strings.Contains(message, "required") || strings.Contains(message, "must") || strings.Contains(message, "unsupported backup") {
+	if strings.Contains(message, "invalid") || strings.Contains(message, "required") || strings.Contains(message, "must") || strings.Contains(message, "unsupported backup") || strings.Contains(message, "truncated backup") {
 		return errorResponse(http.StatusBadRequest, "invalid_request", message)
 	}
 	return internalError()

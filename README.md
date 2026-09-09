@@ -1,49 +1,38 @@
-# CLIProxyAPI Usage Keeper
+﻿# CLIProxyAPI Usage Keeper
 
-项目仓库：<https://github.com/Wu-M1ng/cpa-keeper-dashboard>
+椤圭洰浠撳簱锛?https://github.com/Wu-M1ng/cpa-keeper-dashboard>
 
-轻量化的 CLIProxyAPI 原生用量插件。它接收 CLIProxyAPI 已完成的 `UsageRecord`，用有界内存队列异步批写 SQLite，并提供三个内嵌页面：总览、接口、设置。
+杞婚噺鍖栫殑 CLIProxyAPI 鍘熺敓鐢ㄩ噺鎻掍欢銆傚畠鎺ユ敹 CLIProxyAPI 宸插畬鎴愮殑 `UsageRecord`锛岀敤鏈夌晫鍐呭瓨闃熷垪寮傛鎵瑰啓 SQLite锛屽苟鎻愪緵涓変釜鍐呭祵椤甸潰锛氭€昏銆佹帴鍙ｃ€佽缃€?
+## 璁捐杈圭晫
 
-## 设计边界
+- 鍙０鏄?`usage_plugin` 鍜?`management_api`銆?- 涓嶅惎鍔ㄧ嫭绔?HTTP 鏈嶅姟锛屼笉杞 CPA锛屼笉浣跨敤 Redis銆?- `usage.handle` 鍙仛 JSON 瑙ｇ爜銆佽劚鏁忓拰闈為樆濉炲叆闃燂紝涓嶆墽琛岀鐩?I/O銆?- SQLite 浣跨敤 WAL銆佺煭浜嬪姟鍜?rollup 琛紱鎬昏/鍒嗘瀽鏌ヨ涓嶆壂鎻忎簨浠舵鏂囥€?- API Key 浠呬繚瀛樼缉鐣ユ樉绀哄€煎拰 HMAC 鍒嗙粍鍊硷紝澶辫触鏂囨湰浼氭埅鏂苟娓呯悊甯歌瀵嗛挜鏍煎紡銆?- 涓嶄娇鐢ㄥ搷搴旀嫤鎴垨娴佸紡鎷︽埅锛屽洜姝や笉浼氬鐞嗘瘡涓搷搴?Chunk銆?
+## 鏋勫缓鍓嶆彁
 
-- 只声明 `usage_plugin` 和 `management_api`。
-- 不启动独立 HTTP 服务，不轮询 CPA，不使用 Redis。
-- `usage.handle` 只做 JSON 解码、脱敏和非阻塞入队，不执行磁盘 I/O。
-- SQLite 使用 WAL、短事务和 rollup 表；总览/分析查询不扫描事件正文。
-- API Key 仅保存缩略显示值和 HMAC 分组值，失败文本会截断并清理常见密钥格式。
-- 不使用响应拦截或流式拦截，因此不会处理每个响应 Chunk。
-
-## 构建前提
-
-CLIProxyAPI 原生插件需要 CGO。Windows 使用 MinGW-w64，Linux 使用 `gcc`/`musl-gcc`，macOS 使用 Xcode Command Line Tools。
-
+CLIProxyAPI 鍘熺敓鎻掍欢闇€瑕?CGO銆俉indows 浣跨敤 MinGW-w64锛孡inux 浣跨敤 `gcc`/`musl-gcc`锛宮acOS 浣跨敤 Xcode Command Line Tools銆?
 ```powershell
 cd go
 $env:CGO_ENABLED = "1"
-$env:GOSUMDB = "off" # 仅在本机代理无法访问 sum.golang.org 时使用
-go mod download
+$env:GOSUMDB = "off" # 浠呭湪鏈満浠ｇ悊鏃犳硶璁块棶 sum.golang.org 鏃朵娇鐢?go mod download
 go test ./...
 go vet ./...
 go build -buildmode=c-shared -o usage-keeper.dll .
 ```
 
-Linux/macOS 将输出文件名改为 `usage-keeper.so` 或 `usage-keeper.dylib`。
-
-也可以使用：
+Linux/macOS 灏嗚緭鍑烘枃浠跺悕鏀逛负 `usage-keeper.so` 鎴?`usage-keeper.dylib`銆?
+涔熷彲浠ヤ娇鐢細
 
 ```powershell
-.\scripts\build.ps1 -Version 1.5.0
+.\scripts\build.ps1 -Version 1.6.0
 ```
 
-## 安装
+## 瀹夎
 
-把动态库放入 CPA 插件目录，例如 Windows：
-
+鎶婂姩鎬佸簱鏀惧叆 CPA 鎻掍欢鐩綍锛屼緥濡?Windows锛?
 ```text
 <cpa-workdir>/plugins/windows/amd64/usage-keeper.dll
 ```
 
-在 `config.yaml` 中开启：
+鍦?`config.yaml` 涓紑鍚細
 
 ```yaml
 plugins:
@@ -62,43 +51,36 @@ plugins:
       export_max_records: 50000
 ```
 
-启动后验证：
+鍚姩鍚庨獙璇侊細
 
 ```text
 GET /v0/management/plugins
 GET /v0/resource/plugins/usage-keeper/dashboard
 ```
 
-管理中心需要显示 `registered: true` 与 `effective_enabled: true`，并在该插件的 `menus` 数组中看到：
+绠＄悊涓績闇€瑕佹樉绀?`registered: true` 涓?`effective_enabled: true`锛屽苟鍦ㄨ鎻掍欢鐨?`menus` 鏁扮粍涓湅鍒帮細
 
 ```json
 {
   "path": "/v0/resource/plugins/usage-keeper/dashboard",
-  "menu": "用量 Keeper"
+  "menu": "鐢ㄩ噺 Keeper"
 }
 ```
 
-资源页面会出现在 CPA 管理中心的插件菜单中。更新 DLL/SO 后需要重启 CPA，或执行一次插件配置重载，让宿主重新调用 `management.register`。
+璧勬簮椤甸潰浼氬嚭鐜板湪 CPA 绠＄悊涓績鐨勬彃浠惰彍鍗曚腑銆傛洿鏂?DLL/SO 鍚庨渶瑕侀噸鍚?CPA锛屾垨鎵ц涓€娆℃彃浠堕厤缃噸杞斤紝璁╁涓婚噸鏂拌皟鐢?`management.register`銆?
+## 涓変釜椤甸潰
 
-## 三个页面
-
-| 页面 | 内容 |
+| 椤甸潰 | 鍐呭 |
 | --- | --- |
-| 总览 | KPI、健康监测、请求/Token/费用趋势、队列状态、四个分布图、Token 构成、模型统计、请求明细、筛选、分页与 CSV 导出 |
-| 接口 | API Key 统计、上游统计、Provider/Auth 上游详情 |
-| 设置 | 模型价格、SQLite/WAL/队列状态、JSON 备份与恢复 |
+| 鎬昏 | KPI銆佸仴搴风洃娴嬨€佽姹?Token/璐圭敤瓒嬪娍銆侀槦鍒楃姸鎬併€佸洓涓垎甯冨浘銆乀oken 鏋勬垚銆佹ā鍨嬬粺璁°€佽姹傛槑缁嗐€佺瓫閫夈€佸垎椤典笌 CSV 瀵煎嚭 |
+| 鎺ュ彛 | API Key 缁熻銆佷笂娓哥粺璁°€丳rovider/Auth 涓婃父璇︽儏 |
+| 璁剧疆 | 妯″瀷浠锋牸銆丼QLite/WAL/闃熷垪鐘舵€併€丣SON 澶囦唤涓庢仮澶?|
 
-## Dashboard 呈现契约
+## Dashboard 鍛堢幇濂戠害
 
-- 顶部导航固定为“总览 / 接口 / 设置”；分析与事件继续合并在总览页，所有现有 ID、筛选、分页、导出和详情抽屉保持可用。
-- 总览按“指标带 -> 运行脉搏 -> 分析构成 -> 请求明细”分层呈现。趋势图仅绘制已加载的有用量点，横坐标按真实时间戳定位，悬停使用参考线和单帧更新。
-- 分布图的百分比以当前范围全量请求为分母，Top 5 之外聚合为“其他”，避免把 Top 5 误报为全量占比；Token 和表格数值统一使用 K/M，完整数值保留在 title/Tooltip 中。
-- 页面只读取 CPA 宿主的 `data-theme` / `data-cpa-theme`，不写入插件主题偏好。页面隐藏时停止刷新，页面可见且前端缓存过期后才按 `summary -> analysis -> events` 分阶段请求。
-- CSS 为嵌入式单文件，不加载外部字体、图表库或图片；移动端请求明细使用 `data-label` 网格布局，避免页面级横向滚动。
-
-## 低负载策略
-
-`usage.handle` 的路径如下：
+- 椤堕儴瀵艰埅鍥哄畾涓衡€滄€昏 / 鎺ュ彛 / 璁剧疆鈥濓紱鍒嗘瀽涓庝簨浠剁户缁悎骞跺湪鎬昏椤碉紝鎵€鏈夌幇鏈?ID銆佺瓫閫夈€佸垎椤点€佸鍑哄拰璇︽儏鎶藉眽淇濇寔鍙敤銆?- 鎬昏鎸夆€滄寚鏍囧甫 -> 杩愯鑴夋悘 -> 鍒嗘瀽鏋勬垚 -> 璇锋眰鏄庣粏鈥濆垎灞傚憟鐜般€傝秼鍔垮浘浠呯粯鍒跺凡鍔犺浇鐨勬湁鐢ㄩ噺鐐癸紝妯潗鏍囨寜鐪熷疄鏃堕棿鎴冲畾浣嶏紝鎮仠浣跨敤鍙傝€冪嚎鍜屽崟甯ф洿鏂般€?- 鍒嗗竷鍥剧殑鐧惧垎姣斾互褰撳墠鑼冨洿鍏ㄩ噺璇锋眰涓哄垎姣嶏紝Top 5 涔嬪鑱氬悎涓衡€滃叾浠栤€濓紝閬垮厤鎶?Top 5 璇姤涓哄叏閲忓崰姣旓紱Token 鍜岃〃鏍兼暟鍊肩粺涓€浣跨敤 K/M锛屽畬鏁存暟鍊间繚鐣欏湪 title/Tooltip 涓€?- 椤甸潰鍙鍙?CPA 瀹夸富鐨?`data-theme` / `data-cpa-theme`锛屼笉鍐欏叆鎻掍欢涓婚鍋忓ソ銆傞〉闈㈤殣钘忔椂鍋滄鍒锋柊锛岄〉闈㈠彲瑙佷笖鍓嶇缂撳瓨杩囨湡鍚庢墠鎸?`summary -> analysis -> events` 鍒嗛樁娈佃姹傘€?- CSS 涓哄祵鍏ュ紡鍗曟枃浠讹紝涓嶅姞杞藉閮ㄥ瓧浣撱€佸浘琛ㄥ簱鎴栧浘鐗囷紱绉诲姩绔姹傛槑缁嗕娇鐢?`data-label` 缃戞牸甯冨眬锛岄伩鍏嶉〉闈㈢骇妯悜婊氬姩銆?
+## 浣庤礋杞界瓥鐣?
+`usage.handle` 鐨勮矾寰勫涓嬶細
 
 ```text
 UsageRecord -> compact event -> bounded channel -> return
@@ -107,23 +89,21 @@ UsageRecord -> compact event -> bounded channel -> return
                               one SQLite writer
 ```
 
-队列默认容纳 256 条事件。队列满时在构造完整事件前记录 `dropped` 计数并立即返回；未刷新批次在进程突然退出时可能丢失，这是避免阻塞 API 完成路径的明确取舍。后台默认每 64 条或 250 ms 写一次。
-
-Dashboard 仅在页面可见且 60 秒前端缓存失效时刷新。聚合 Management API 使用 4 秒、32 条目、4 MiB 上限的进程内缓存，并合并相同 Key 的并发查询。SQLite 最多 4 个连接，每个连接约 8 MiB 页缓存，临时排序写入临时文件。
-
-## 发布
-
-```powershell
-.\scripts\build.ps1 -Version 1.5.0 -GoOS windows -GoArch amd64
-```
-
-推送语义化版本标签后，GitHub Actions 会自动构建 Windows/Linux/macOS 动态库，打包 zip，生成统一的 `checksums.txt`，并创建 GitHub Release：
+闃熷垪榛樿瀹圭撼 256 鏉′簨浠躲€傞槦鍒楁弧鏃跺湪鏋勯€犲畬鏁翠簨浠跺墠璁板綍 `dropped` 璁℃暟骞剁珛鍗宠繑鍥烇紱鏈埛鏂版壒娆″湪杩涚▼绐佺劧閫€鍑烘椂鍙兘涓㈠け锛岃繖鏄伩鍏嶉樆濉?API 瀹屾垚璺緞鐨勬槑纭彇鑸嶃€傚悗鍙伴粯璁ゆ瘡 64 鏉℃垨 250 ms 鍐欎竴娆°€?
+Dashboard 浠呭湪椤甸潰鍙涓?60 绉掑墠绔紦瀛樺け鏁堟椂鍒锋柊銆傝仛鍚?Management API 浣跨敤 4 绉掋€?2 鏉＄洰銆? MiB 涓婇檺鐨勮繘绋嬪唴缂撳瓨锛屽苟鍚堝苟鐩稿悓 Key 鐨勫苟鍙戞煡璇€係QLite 鏈€澶?4 涓繛鎺ワ紝姣忎釜杩炴帴绾?8 MiB 椤电紦瀛橈紝涓存椂鎺掑簭鍐欏叆涓存椂鏂囦欢銆?
+## 瓒嬪娍涓庢暟鎹繚鐣?
+- 瓒嬪娍鎸夊寳浜椂闂村垎缁勶細鏃ユ眹鎬讳粠闆剁偣寮€濮嬶紝鍛ㄦ眹鎬讳粠鍛ㄤ竴闆剁偣寮€濮嬨€傘€屽叏閮ㄣ€嶆牴鎹渶鏃╀繚鐣欒褰曞埌褰撳墠鏃堕棿鐨勮法搴﹂€夋嫨绮掑害锛?5 澶╀互鍐呮寜澶╂眹鎬伙紝鏇撮暱鍘嗗彶鎸夊懆姹囨€伙紱棣栦釜涓嶅畬鏁村懆鐨勬棩鏈熶粠鏈€鏃╀繚鐣欒褰曟墍鍦ㄦ棩鏈熷紑濮嬨€?- `retention_days` 鏄粴鍔ㄤ繚鐣欏ぉ鏁般€傚惎鍔ㄥ拰淇濆瓨瀛樺偍璁剧疆鏃舵墽琛屾竻鐞嗭紝鍚庡彴姣?24 灏忔椂鍐嶆墽琛屼竴娆★紝鍥犳涓ゆ娓呯悊涔嬮棿鍙兘鏆傜暀涓嶈冻涓€澶╃殑杩囨湡璁板綍銆?- 淇濆瓨瀛樺偍璁剧疆涓庢竻鐞嗗湪鍚屼竴涓簨鍔′腑瀹屾垚锛屽け璐ユ椂鍥炴粴骞惰繑鍥為敊璇€備簨浠跺拰鍒嗛挓姹囨€诲悓姝ユ竻鐞嗭紝鎴鏃堕棿鎵€鍦ㄥ垎閽熺殑姹囨€绘牴鎹繚鐣欒褰曢噸寤猴紱娓呯悊閿欒淇濈暀鍒颁笅涓€娆℃竻鐞嗘垚鍔熴€?- 椤甸潰淇濆瓨鐨勪繚鐣欏ぉ鏁板瓨鍏?SQLite锛岄噸鍚椂浼樺厛浜?YAML 閰嶇疆锛涢渶瑕佽皟鏁村凡淇濆瓨鐨勫€兼椂锛屽湪鎻掍欢銆岃缃€嶉〉闈慨鏀广€?
+## 鍙戝竷
 
 ```powershell
-git tag v1.5.0
-git push origin v1.5.0
+.\scripts\build.ps1 -Version 1.6.0 -GoOS windows -GoArch amd64
 ```
 
-也可在 GitHub Actions 手动运行 `release` 工作流并输入版本标签，例如 `v1.5.0`。工作流会检查远端 tag：不存在时在当前提交创建并推送，存在时直接复用；对应 GitHub Release 已存在时会更新同名发布资产。
+鎺ㄩ€佽涔夊寲鐗堟湰鏍囩鍚庯紝GitHub Actions 浼氳嚜鍔ㄦ瀯寤?Windows/Linux/macOS 鍔ㄦ€佸簱锛屾墦鍖?zip锛岀敓鎴愮粺涓€鐨?`checksums.txt`锛屽苟鍒涘缓 GitHub Release锛?
+```powershell
+git tag v1.6.0
+git push origin v1.6.0
+```
 
-发布 zip 根目录直接包含动态库。`registry.json` 是插件商店条目，仓库地址已指向本项目。
+涔熷彲鍦?GitHub Actions 鎵嬪姩杩愯 `release` 宸ヤ綔娴佸苟杈撳叆鐗堟湰鏍囩锛屼緥濡?`v1.6.0`銆傚伐浣滄祦浼氭鏌ヨ繙绔?tag锛氫笉瀛樺湪鏃跺湪褰撳墠鎻愪氦鍒涘缓骞舵帹閫侊紝瀛樺湪鏃剁洿鎺ュ鐢紱瀵瑰簲 GitHub Release 宸插瓨鍦ㄦ椂浼氭洿鏂板悓鍚嶅彂甯冭祫浜с€?
+鍙戝竷 zip 鏍圭洰褰曠洿鎺ュ寘鍚姩鎬佸簱銆俙registry.json` 鏄彃浠跺晢搴楁潯鐩紝浠撳簱鍦板潃宸叉寚鍚戞湰椤圭洰銆?

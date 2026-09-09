@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -86,7 +87,7 @@ func TestManagementPricesAndSettingsMutations(t *testing.T) {
 }
 
 func TestManagementExportAndRestoreValidation(t *testing.T) {
-	_, _ = withTestRuntime(t)
+	runtime, _ := withTestRuntime(t)
 	export := handleManagement(managementRequest{Method: http.MethodGet, Path: managementPrefix + "/events/export", Query: url.Values{"range": {"all"}}})
 	if export.StatusCode != http.StatusOK || export.Headers.Get("Content-Disposition") == "" || len(export.Body) == 0 {
 		t.Fatalf("unexpected export: %+v", export)
@@ -94,6 +95,20 @@ func TestManagementExportAndRestoreValidation(t *testing.T) {
 	invalid := handleManagement(managementRequest{Method: http.MethodPost, Path: managementPrefix + "/restore", Body: []byte("not-json")})
 	if invalid.StatusCode != http.StatusBadRequest {
 		t.Fatalf("invalid restore status=%d", invalid.StatusCode)
+	}
+	before := runtime.store.status().EventCount
+	for _, body := range [][]byte{
+		[]byte(`{"version":1}`),
+		[]byte(`{"version":1,"events":[],"prices":[],"truncated":true}`),
+		[]byte(`{"version":1,"events":[{"timestamp_ms":1,"provider":"codex","model":"gpt","input_tokens":-1}],"prices":[]}`),
+	} {
+		response := handleManagement(managementRequest{Method: http.MethodPost, Path: managementPrefix + "/restore", Body: body})
+		if response.StatusCode != http.StatusBadRequest {
+			t.Fatalf("incomplete restore status=%d body=%s", response.StatusCode, response.Body)
+		}
+		if after := runtime.store.status().EventCount; after != before {
+			t.Fatalf("rejected restore changed events: before=%d after=%d", before, after)
+		}
 	}
 }
 
@@ -136,5 +151,56 @@ func TestUpdateSettingsPublishesConfigOnlyAfterCommit(t *testing.T) {
 	runtime.configMu.RUnlock()
 	if after != before {
 		t.Fatalf("failed commit published runtime config: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestUpdateSettingsRollsBackWhenRetentionFails(t *testing.T) {
+	runtime, now := withTestRuntime(t)
+	if err := runtime.store.writeBatch([]usageEvent{fixtureEvent(now.AddDate(0, 0, -40), "expired", false, 100, 10)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.store.db.Exec(`CREATE TRIGGER reject_retention BEFORE DELETE ON usage_minute_rollups
+		BEGIN SELECT RAISE(ABORT, 'forced retention failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	before := runtime.config
+	response := updateSettings(t.Context(), runtime, []byte(`{"retention_days":14,"export_max_records":1000}`))
+	if response.StatusCode != http.StatusInternalServerError || !strings.Contains(string(response.Body), "retention_cleanup_failed") {
+		t.Fatalf("failed retention reported success: status=%d body=%s", response.StatusCode, response.Body)
+	}
+	if runtime.config != before {
+		t.Fatalf("failed retention changed runtime settings: %+v", runtime.config)
+	}
+	if saved := runtime.store.loadIntSetting("retention_days", before.RetentionDays); saved != before.RetentionDays {
+		t.Fatalf("failed retention persisted new settings: %d", saved)
+	}
+	status := runtime.store.status()
+	if status.EventCount != 4 || status.RollupCount != 4 || status.LastError == "" {
+		t.Fatalf("failed retention did not preserve data and report error: %+v", status)
+	}
+}
+
+func TestUpdateSettingsPrunesAndInvalidatesSummaryCache(t *testing.T) {
+	runtime, now := withTestRuntime(t)
+	if err := runtime.store.writeBatch([]usageEvent{fixtureEvent(now.AddDate(0, 0, -40), "expired", false, 100, 10)}); err != nil {
+		t.Fatal(err)
+	}
+	request := managementRequest{Method: http.MethodGet, Path: managementPrefix + "/summary", Query: url.Values{"range": {"all"}}}
+	before := handleManagement(request)
+	var summary summaryResponse
+	if err := json.Unmarshal(before.Body, &summary); err != nil || summary.KPI.Requests != 4 {
+		t.Fatalf("failed to prime summary cache: %s, err=%v", before.Body, err)
+	}
+	response := updateSettings(t.Context(), runtime, []byte(`{"retention_days":30}`))
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", response.StatusCode, response.Body)
+	}
+	status := runtime.store.status()
+	if status.EventCount != 3 || status.RollupCount != 3 {
+		t.Fatalf("settings did not prune at the management request time: %+v", status)
+	}
+	after := handleManagement(request)
+	if err := json.Unmarshal(after.Body, &summary); err != nil || summary.KPI.Requests != 3 {
+		t.Fatalf("summary cache still contains expired data: %s, err=%v", after.Body, err)
 	}
 }

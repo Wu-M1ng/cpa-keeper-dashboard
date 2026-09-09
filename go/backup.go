@@ -23,9 +23,22 @@ type importResult struct {
 	Prices int `json:"prices"`
 }
 
+var errInvalidBackup = errors.New("invalid backup")
+
+func invalidBackup(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", errInvalidBackup, fmt.Sprintf(format, args...))
+}
+
 func exportBackup(ctx context.Context, store *eventStore, maxRecords int) (backupPayload, error) {
 	if maxRecords < 1 {
 		maxRecords = defaultExportMax
+	}
+	// Load prices before opening the event cursor. SQLite reserves the cursor's
+	// connection until it is closed, so a cold price cache could otherwise
+	// deadlock a single-connection pool.
+	prices, err := listPrices(ctx, store)
+	if err != nil {
+		return backupPayload{}, err
 	}
 	rows, err := store.db.QueryContext(ctx, "SELECT "+eventColumns+" FROM usage_events ORDER BY timestamp_ms, id LIMIT ?", maxRecords+1)
 	if err != nil {
@@ -49,27 +62,23 @@ func exportBackup(ctx context.Context, store *eventStore, maxRecords int) (backu
 	if err := rows.Err(); err != nil {
 		return backupPayload{}, err
 	}
-	prices, err := listPrices(ctx, store)
-	if err != nil {
-		return backupPayload{}, err
-	}
 	return backupPayload{Version: 1, GeneratedAt: time.Now().UTC().Format(time.RFC3339), Events: events, Prices: prices, Truncated: truncated}, nil
 }
 
 func importBackup(ctx context.Context, store *eventStore, payload backupPayload) (importResult, error) {
 	if payload.Version != 1 {
-		return importResult{}, errors.New("unsupported backup version")
+		return importResult{}, invalidBackup("unsupported backup version")
+	}
+	if payload.Truncated {
+		return importResult{}, invalidBackup("truncated backup cannot be restored")
 	}
 	if len(payload.Events) > 1_000_000 {
-		return importResult{}, errors.New("backup contains too many events")
-	}
-	if err := validatePrices(payload.Prices); err != nil {
-		return importResult{}, err
+		return importResult{}, invalidBackup("backup contains too many events")
 	}
 	for i := range payload.Events {
 		event := &payload.Events[i]
 		if event.TimestampMS <= 0 || strings.TrimSpace(event.Model) == "" || strings.TrimSpace(event.Provider) == "" {
-			return importResult{}, fmt.Errorf("event %d is invalid", i+1)
+			return importResult{}, invalidBackup("event %d is invalid", i+1)
 		}
 		measurements := []int64{
 			event.LatencyMS, event.TTFTMS, event.InputTokens, event.OutputTokens,
@@ -78,10 +87,18 @@ func importBackup(ctx context.Context, store *eventStore, payload backupPayload)
 		}
 		for _, measurement := range measurements {
 			if measurement < 0 {
-				return importResult{}, fmt.Errorf("event %d contains a negative measurement", i+1)
+				return importResult{}, invalidBackup("event %d contains a negative measurement", i+1)
 			}
 		}
 		normalizeEventForStorage(event, store.hashSalt)
+	}
+	// A nil slice means the JSON field was omitted (or explicitly null). Empty
+	// arrays are valid and intentionally clear that collection on restore.
+	if payload.Events == nil || payload.Prices == nil {
+		return importResult{}, invalidBackup("backup events and prices are required")
+	}
+	if err := validatePrices(payload.Prices); err != nil {
+		return importResult{}, fmt.Errorf("%w: %v", errInvalidBackup, err)
 	}
 	store.priceMu.Lock()
 	defer store.priceMu.Unlock()
@@ -120,7 +137,10 @@ func exportEventsCSV(ctx context.Context, store *eventStore, filter eventFilter,
 	}
 	filter.Page = 1
 	filter.PageSize = maxRecords
-	where, args := eventWhere(filter)
+	where, args, err := eventWhere(ctx, store, filter)
+	if err != nil {
+		return nil, err
+	}
 	args = append(args, maxRecords)
 	rows, err := store.db.QueryContext(ctx, "SELECT "+eventColumns+" FROM usage_events "+where+" ORDER BY timestamp_ms DESC, id DESC LIMIT ?", args...)
 	if err != nil {
