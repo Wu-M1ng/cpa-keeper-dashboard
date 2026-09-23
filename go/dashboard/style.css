@@ -632,6 +632,8 @@ tbody tr:hover td {
   grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
   gap: 14px;
   align-items: start;
+  position: relative;
+  z-index: 10;
 }
 .trend-panel, .health-panel {
   min-height: 595px;
@@ -642,7 +644,18 @@ tbody tr:hover td {
   min-width: 0;
   box-sizing: border-box;
 }
-.trend-panel { justify-content: flex-start; }
+.trend-panel {
+  justify-content: flex-start;
+  position: relative;
+  z-index: 15;
+}
+.trend-panel:hover, .trend-panel:focus-within {
+  z-index: 25;
+}
+.health-panel {
+  position: relative;
+  z-index: 10;
+}
 .chart-host-interactive {
   position: relative;
   height: 500px;
@@ -750,8 +763,8 @@ tbody tr:hover td {
   filter: drop-shadow(0 3px 8px color-mix(in srgb, currentColor 65%, transparent));
 }
 .trend-tooltip-popup {
-  position: fixed;
-  z-index: 100;
+  position: fixed !important;
+  z-index: 9999 !important;
   min-width: 220px;
   max-width: min(300px, calc(100vw - 24px));
   padding: 11px 14px;
@@ -1451,16 +1464,30 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
 #page-label { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 .empty-state { min-height: 120px; display: grid; place-items: center; padding: 18px; color: var(--muted); font-size: 12px; font-weight: 650; }
 
+.event-section {
+  position: relative;
+  z-index: 20;
+}
 .filter-bar {
+  position: relative;
+  z-index: 40;
   display: grid;
   grid-template-columns: minmax(200px, 1.6fr) repeat(3, minmax(130px, 0.8fr)) auto auto auto;
   gap: 12px;
   align-items: end;
   padding: 16px 18px;
+  margin-bottom: 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   background: linear-gradient(145deg, color-mix(in srgb, var(--blue) 3.5%, var(--surface)) 0%, var(--surface) 68%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), var(--shadow-sm);
+}
+.filter-bar:focus-within {
+  z-index: 50;
+}
+.event-table-section {
+  position: relative;
+  z-index: 1;
 }
 .filter-bar label { min-width: 0; display: grid; gap: 6px; color: var(--muted-strong); font-size: 11.5px; font-weight: 760; letter-spacing: 0.01em; }
 .filter-bar input, .filter-bar select {
@@ -1530,6 +1557,9 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
   width: 100%;
   min-width: 0;
 }
+.custom-select-wrapper.is-open {
+  z-index: 70;
+}
 .custom-select-trigger {
   width: 100%;
   height: 40px;
@@ -1588,7 +1618,7 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-inset) 55%, tra
   min-width: 170px;
   max-height: 240px;
   overflow-y: auto;
-  z-index: 120;
+  z-index: 150;
   padding: 5px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);

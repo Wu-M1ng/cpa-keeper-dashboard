@@ -1014,8 +1014,16 @@
       </linearGradient>
     </defs>`;
 
-    host.innerHTML = `<svg class="trend-svg-large" viewBox="0 0 ${width} ${height}" id="trend-svg-element" role="img" aria-label="输入、输出、缓存和缓存命中率趋势">${defs}${vGridLines}${leftGrid}${rightGrid}<g>${areaPaths}${linePaths}${pointDots}</g>${xLabels}<line id="crosshair-line" class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${zeroY}" hidden/><g id="active-dots-group"></g></svg><div id="trend-tooltip" class="trend-tooltip-popup" hidden></div>`;
-    const svg = $('#trend-svg-element'), crosshair = $('#crosshair-line'), dots = $('#active-dots-group'), tooltip = $('#trend-tooltip');
+    host.innerHTML = `<svg class="trend-svg-large" viewBox="0 0 ${width} ${height}" id="trend-svg-element" role="img" aria-label="输入、输出、缓存和缓存命中率趋势">${defs}${vGridLines}${leftGrid}${rightGrid}<g>${areaPaths}${linePaths}${pointDots}</g>${xLabels}<line id="crosshair-line" class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${zeroY}" hidden/><g id="active-dots-group"></g></svg>`;
+    let tooltip = $('#trend-tooltip');
+    if (!tooltip) {
+      tooltip = document.createElement('div');
+      tooltip.id = 'trend-tooltip';
+      tooltip.className = 'trend-tooltip-popup';
+      tooltip.hidden = true;
+      document.body.appendChild(tooltip);
+    }
+    const svg = $('#trend-svg-element'), crosshair = $('#crosshair-line'), dots = $('#active-dots-group');
     let hoverFrame = 0;
     let lastPointer = null;
     const clearHover = () => { crosshair.hidden = true; dots.replaceChildren(); tooltip.hidden = true; };
@@ -1037,10 +1045,24 @@
         return `<div class="tt-row"><span class="tt-row-left"><span class="tt-box ${dimension.dashed ? 'tt-box-dashed' : ''}" style="background:${dimension.color}"></span>${dimension.label}</span><strong>${formatted}</strong></div>`;
       }).join('');
       tooltip.innerHTML = `<div class="tt-header">${esc(formatDateTime(point.timestamp_ms))}</div><div class="tt-body">${rows}</div><div class="tt-footer">实际费用: <strong>${formatMoney(point.actual_cost)}</strong> · 标准费用: <strong>${formatMoney(point.standard_cost)}</strong></div>`;
-      const halfWidth = 135;
-      tooltip.style.left = `${Math.max(halfWidth + 12, Math.min(window.innerWidth - halfWidth - 12, clientX))}px`;
+      const isNearChartRight = clientX > rect.right - 160;
+      const isNearChartLeft = clientX < rect.left + 160;
+
+      let leftPx = clientX;
+      let transformX = '-50%';
+      if (isNearChartRight) {
+        leftPx = clientX - 16;
+        transformX = '-100%';
+      } else if (isNearChartLeft) {
+        leftPx = clientX + 16;
+        transformX = '0%';
+      }
+
+      tooltip.style.left = `${Math.max(16, Math.min(window.innerWidth - 300, leftPx))}px`;
       tooltip.style.top = `${clientY}px`;
-      tooltip.style.transform = clientY < 250 ? 'translate(-50%, 16px)' : 'translate(-50%, -100%) translateY(-16px)';
+      tooltip.style.transform = clientY < 250
+        ? `translate(${transformX}, 16px)`
+        : `translate(${transformX}, -100%) translateY(-16px)`;
       tooltip.hidden = false;
     };
     host.onmousemove = (event) => {
