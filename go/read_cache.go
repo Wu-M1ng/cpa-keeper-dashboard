@@ -69,13 +69,18 @@ func (c *managementReadCache) set(key string, body []byte, now time.Time) {
 }
 
 func (c *managementReadCache) setLocked(key string, body []byte, now time.Time) {
+	c.setOwnedLocked(key, append([]byte(nil), body...), now)
+}
+
+// setOwnedLocked transfers an immutable response body into the cache without copying it.
+func (c *managementReadCache) setOwnedLocked(key string, body []byte, now time.Time) {
 	if previous, ok := c.entries[key]; ok {
 		c.bytes -= len(previous.body)
 		delete(c.entries, key)
 	}
 	c.clock++
 	c.entries[key] = managementReadCacheEntry{
-		body:       append([]byte(nil), body...),
+		body:       body,
 		expiresAt:  now.Add(managementReadCacheTTL),
 		lastAccess: c.clock,
 	}
@@ -85,6 +90,7 @@ func (c *managementReadCache) setLocked(key string, body []byte, now time.Time) 
 	}
 }
 
+// acquire returns a borrowed immutable body on hits; callers must not mutate it.
 func (c *managementReadCache) acquire(key string, now time.Time) ([]byte, bool, <-chan struct{}, uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -93,7 +99,7 @@ func (c *managementReadCache) acquire(key string, now time.Time) ([]byte, bool, 
 			c.clock++
 			entry.lastAccess = c.clock
 			c.entries[key] = entry
-			return append([]byte(nil), entry.body...), true, nil, 0
+			return entry.body, true, nil, 0
 		}
 		c.removeLocked(key)
 	}
@@ -113,7 +119,7 @@ func (c *managementReadCache) finish(key string, generation uint64, body []byte,
 		return
 	}
 	if cacheable && c.generation == generation && len(body) > 0 && len(body) <= managementReadCacheBytes {
-		c.setLocked(key, body, now)
+		c.setOwnedLocked(key, body, now)
 	}
 	delete(c.inflight, key)
 	close(flight.done)

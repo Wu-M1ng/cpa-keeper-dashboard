@@ -4,10 +4,12 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const nodes = new Map();
+const animationFrames = [];
 function node(selector) {
   if (!nodes.has(selector)) {
     const classes = new Set();
     nodes.set(selector, {
+      id: selector.startsWith('#') ? selector.slice(1) : '',
       innerHTML: '', textContent: '', inert: true, isConnected: true,
       classList: {
         add: (value) => classes.add(value),
@@ -28,6 +30,11 @@ const context = vm.createContext({
   Intl,
   URL,
   console,
+  performance: { now: () => 1_000 },
+  requestAnimationFrame: (callback) => {
+    animationFrames.push(callback);
+    return animationFrames.length;
+  },
   document: { addEventListener() {}, querySelector: node, activeElement: null },
   sessionStorage: { getItem: () => 'test-key' },
   localStorage: { getItem: () => null },
@@ -46,7 +53,7 @@ const source = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 assert.match(source, /\}\)\(\);\s*$/);
 vm.runInContext(source.replace(
   /\}\)\(\);\s*$/,
-  'globalThis.testAPI = { state, renderTokenComposition, openUpstream, closeDrawer }; })();',
+  'globalThis.testAPI = { state, animateNumber, renderTokenComposition, openUpstream, closeDrawer }; })();',
 ), context);
 
 function response(name) {
@@ -59,7 +66,16 @@ function response(name) {
 }
 
 async function main() {
-  const { state, renderTokenComposition, openUpstream } = context.testAPI;
+  const { state, animateNumber, renderTokenComposition, openUpstream } = context.testAPI;
+
+  const firstKpiRender = { id: 'kpi-val-req', textContent: '42' };
+  animateNumber(firstKpiRender, 42, String);
+  assert.equal(animationFrames.length, 0, 'initial KPI values should not schedule count-up frames');
+  const refreshedKpi = { id: 'kpi-val-req', textContent: '50' };
+  animateNumber(refreshedKpi, 50, String);
+  assert.equal(animationFrames.length, 1, 'updated KPI values should still animate');
+  animationFrames.shift()(1_450);
+  assert.equal(refreshedKpi.textContent, '50');
 
   renderTokenComposition(
     { input: 1_000_000, output: 1_000_000, total: 2_000_000 },

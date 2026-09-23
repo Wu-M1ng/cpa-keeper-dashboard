@@ -127,6 +127,13 @@
               <button class="secondary-button" type="reset" id="event-reset">清除筛选</button>
               <button class="secondary-button" id="event-export" type="button"><svg><use href="#i-download"/></svg>导出 CSV</button>
             </form>
+            <div id="drilldown-banner" class="drilldown-banner" hidden>
+              <div class="drilldown-banner-left">
+                <span class="drilldown-icon"><svg><use href="#i-activity"/></svg></span>
+                <span id="drilldown-text" class="drilldown-text">已锁定 15 分钟监控时段</span>
+              </div>
+              <button type="button" id="drilldown-clear" class="drilldown-clear-btn" title="解除时段锁定"><svg><use href="#i-x"/></svg>解除锁定</button>
+            </div>
             <section class="table-section event-table-section">
               <div class="section-head"><div><h2>请求明细记录</h2><p id="event-count" aria-live="polite">0 条记录</p></div><span class="scroll-hint">⟷ 左右滑动</span></div>
               <div class="table-wrap"><table class="event-table"><caption class="sr-only">请求明细记录</caption><thead><tr><th scope="col">时间</th><th scope="col">模型 / 渠道</th><th scope="col">推理强度</th><th scope="col">状态</th><th scope="col">用时 / 首字</th><th scope="col">Token 明细</th><th scope="col">命中率</th><th scope="col">总 Token / 速度</th><th scope="col">费用</th></tr></thead><tbody id="event-table"></tbody></table></div>

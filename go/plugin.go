@@ -161,6 +161,7 @@ func (r *pluginRuntime) runWriter() {
 		}
 		r.lastBatchSize.Store(int64(count))
 		r.lastBatchNS.Store(time.Since(started).Nanoseconds())
+		clear(batch[:cap(batch)])
 		batch = batch[:0]
 	}
 
@@ -372,13 +373,18 @@ func normalizeEventForStorage(event *usageEvent, salt string) {
 }
 
 func sanitizeEndpoint(value string) string {
+	oversized := len(value) > 256
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return ""
 	}
 	parsed, err := url.Parse(value)
 	if err != nil {
-		return cleanControlChars(value, 256)
+		res := cleanControlChars(value, 256)
+		if oversized {
+			return strings.Clone(res)
+		}
+		return res
 	}
 	var res string
 	if parsed.Host != "" {
@@ -396,7 +402,11 @@ func sanitizeEndpoint(value string) string {
 			res = value
 		}
 	}
-	return cleanControlChars(res, 256)
+	res = cleanControlChars(res, 256)
+	if oversized {
+		return strings.Clone(res)
+	}
+	return res
 }
 
 func cleanControlChars(s string, maxLen int) string {
@@ -499,6 +509,7 @@ func isHexDigest(value string, length int) bool {
 }
 
 func cleanDimension(value, fallback string) string {
+	oversized := len(value) > 160
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return fallback
@@ -506,15 +517,20 @@ func cleanDimension(value, fallback string) string {
 	if len(value) > 160 {
 		value = value[:160]
 	}
-	return strings.Map(func(r rune) rune {
+	cleaned := strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return -1
 		}
 		return r
 	}, value)
+	if oversized {
+		return strings.Clone(cleaned)
+	}
+	return cleaned
 }
 
 func sanitizeFailure(value string) string {
+	oversized := len(value) > 512
 	value = html.UnescapeString(strings.TrimSpace(value))
 	if len(value) > 512 {
 		value = value[:512]
@@ -522,12 +538,16 @@ func sanitizeFailure(value string) string {
 	for !utf8.ValidString(value) {
 		value = value[:len(value)-1]
 	}
-	return strings.Map(func(r rune) rune {
+	cleaned := strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return -1
 		}
 		return r
 	}, value)
+	if oversized {
+		return strings.Clone(cleaned)
+	}
+	return cleaned
 }
 
 func firstNonEmpty(values ...string) string {

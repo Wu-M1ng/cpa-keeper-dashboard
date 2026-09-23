@@ -345,6 +345,55 @@ func TestAggregateQueriesRespectExactMillisecondRange(t *testing.T) {
 	}
 }
 
+func TestQueryEventsCountUsesRollupsAndExactBoundaryEvents(t *testing.T) {
+	store := openTestStore(t)
+	minute := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	from := minute.Add(-3*time.Minute + 10*time.Second)
+	to := minute.Add(20 * time.Second)
+	events := []usageEvent{
+		fixtureEvent(from.Add(-time.Millisecond), "outside", false, 1, 1),
+		fixtureEvent(from.Add(20*time.Second), "inside", false, 1, 1),
+		fixtureEvent(minute.Add(-2*time.Minute+10*time.Second), "inside", false, 1, 1),
+		fixtureEvent(minute.Add(-2*time.Minute+20*time.Second), "inside", false, 1, 1),
+		fixtureEvent(minute.Add(-time.Minute+30*time.Second), "inside", false, 1, 1),
+		fixtureEvent(minute.Add(10*time.Second), "inside", false, 1, 1),
+		fixtureEvent(to.Add(time.Millisecond), "outside", false, 1, 1),
+	}
+	if err := store.writeBatch(events); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := queryEvents(t.Context(), store, eventFilter{
+		FromMS: from.UnixMilli(), ToMS: to.UnixMilli(), Page: 1, PageSize: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 5 || page.Pages != 3 || len(page.Events) != 2 {
+		t.Fatalf("unfiltered page total=%d pages=%d events=%d, want total=5 pages=3 events=2", page.Total, page.Pages, len(page.Events))
+	}
+
+	filtered, err := queryEvents(t.Context(), store, eventFilter{
+		FromMS: from.UnixMilli(), ToMS: to.UnixMilli(), Model: "inside", Page: 1, PageSize: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filtered.Total != 5 {
+		t.Fatalf("filtered event total=%d, want 5", filtered.Total)
+	}
+
+	all, err := queryEvents(t.Context(), store, eventFilter{
+		FromMS: 0, ToMS: to.UnixMilli(), Page: 1, PageSize: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all.Total != 6 {
+		t.Fatalf("all-range event total=%d, want 6", all.Total)
+	}
+}
+
 func TestQueryAnalysisReturnsFourDistributionsAndModels(t *testing.T) {
 	store, now := seededQueryStore(t)
 	result, err := queryAnalysis(context.Background(), store, url.Values{"range": {"24h"}}, now)
@@ -361,6 +410,69 @@ func TestQueryAnalysisReturnsFourDistributionsAndModels(t *testing.T) {
 	}
 	if len(result.Models) != 2 || result.Tokens.Total != 1930 {
 		t.Fatalf("model/token analysis incomplete: %+v", result)
+	}
+}
+
+func TestQueryAnalysisCombinedScanMatchesDimensionQueries(t *testing.T) {
+	store, now := seededQueryStore(t)
+	cases := []struct {
+		name  string
+		query url.Values
+	}{
+		{name: "24h", query: url.Values{"range": {"24h"}}},
+		{name: "custom edges", query: url.Values{
+			"range": {"custom"},
+			"from":  {now.Add(-90 * time.Minute).Format(time.RFC3339)},
+			"to":    {now.Add(-20 * time.Minute).Format(time.RFC3339)},
+		}},
+		{name: "all", query: url.Values{"range": {"all"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := queryAnalysis(t.Context(), store, tc.query, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rng, err := parseRange(tc.query, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prices, err := loadPriceMap(t.Context(), store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, dimension := range []struct {
+				name, key, label string
+			}{
+				{"models", "model", "model"},
+				{"providers", "provider", "provider"},
+				{"api_keys", "api_key_hash", "api_key_mask"},
+				{"sources", "source", "source"},
+			} {
+				want, err := queryDimension(t.Context(), store, rng, dimension.key, dimension.label, "", "", prices)
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch dimension.name {
+				case "api_keys":
+					anonymizeDimensionStats(want, "key", false)
+				case "sources":
+					maskProviderCredentialStats(want, false)
+					want = mergeDimensionStatsByName(want, "source")
+				}
+				wantJSON, err := json.Marshal(want)
+				if err != nil {
+					t.Fatal(err)
+				}
+				gotJSON, err := json.Marshal(got.Distributions[dimension.name])
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(gotJSON, wantJSON) {
+					t.Errorf("%s distribution differs from per-dimension query:\ngot:  %s\nwant: %s", dimension.name, gotJSON, wantJSON)
+				}
+			}
+		})
 	}
 }
 

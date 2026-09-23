@@ -26,6 +26,8 @@
     eventPage: 1,
     eventPages: 0,
     eventFilters: {},
+    healthFilter: null,
+    currentEvents: [],
     trendActiveDims: { input: true, output: true, cache_write: true, cache_read: true, hit_rate: true },
     providerTokenActiveDims: { input: true, output: true, cache_read: true, cache_write: true, reasoning: true },
     lastTrendPoints: [],
@@ -39,6 +41,7 @@
     drawerController: null,
     drawerReturnFocus: null,
   };
+  const previousKpiValues = new Map();
   let autoRefreshTimer = 0;
   let resizeTimer = 0;
 
@@ -62,6 +65,7 @@
     bindNavigation();
     bindRange();
     bindEvents();
+    bindEventTableInteraction();
     bindSettings();
     bindDrawer();
     bindAuth();
@@ -177,6 +181,10 @@
       $$('#range-control button').forEach((item) => item.classList.toggle('is-active', item === button));
       state.eventPage = 1;
       state.eventFilters = {};
+      state.healthFilter = null;
+      const banner = $('#drilldown-banner');
+      if (banner) banner.hidden = true;
+      $$('.health-cell', $('#health-grid')).forEach((c) => c.classList.remove('is-selected'));
       $('#event-filters').reset();
       loadActivePage(true);
     }));
@@ -194,6 +202,10 @@
       event.preventDefault();
       $('#event-filters').reset();
       state.eventFilters = {};
+      state.healthFilter = null;
+      const banner = $('#drilldown-banner');
+      if (banner) banner.hidden = true;
+      $$('.health-cell', $('#health-grid')).forEach((c) => c.classList.remove('is-selected'));
       state.eventPage = 1;
       loadEvents(true);
     });
@@ -255,6 +267,100 @@
     });
     grid.addEventListener('mousemove', (event) => positionFloatingTooltip(tooltip, event));
     grid.addEventListener('mouseleave', () => tooltip.classList.remove('is-visible'));
+
+    grid.addEventListener('click', (event) => {
+      const cell = event.target.closest('.health-cell');
+      if (!cell) return;
+      const timestamp = Number(cell.dataset.timestamp || 0);
+      const slotMs = Number(cell.dataset.slotMs || 15 * 60 * 1000);
+      const reqs = Number(cell.dataset.reqs || 0);
+      const fails = Number(cell.dataset.fails || 0);
+      if (!timestamp || reqs === 0) {
+        toast('该监控时段无请求记录');
+        return;
+      }
+
+      $$('.health-cell', grid).forEach((c) => c.classList.remove('is-selected'));
+      cell.classList.add('is-selected');
+
+      const timeLabel = cell.dataset.time || '';
+      applyHealthDrilldown(timestamp, timestamp + slotMs, timeLabel, fails > 0, fails);
+    });
+  }
+
+  function applyHealthDrilldown(fromMs, toMs, timeLabel, hasFailures, failCount) {
+    state.healthFilter = { from: fromMs, to: toMs, label: timeLabel };
+    state.eventPage = 1;
+
+    const banner = $('#drilldown-banner');
+    const bannerText = $('#drilldown-text');
+    if (banner && bannerText) {
+      bannerText.textContent = `已锁定时段：${timeLabel}${failCount > 0 ? ` · 含 ${failCount} 次失败` : ''}`;
+      banner.hidden = false;
+    }
+
+    const statusSelect = $('#event-filters [name="status"]');
+    if (statusSelect) {
+      if (hasFailures) {
+        statusSelect.value = 'failure';
+      }
+      syncCustomSelectOptions(statusSelect);
+    }
+    const form = $('#event-filters');
+    if (form) {
+      const formData = new FormData(form);
+      state.eventFilters = Object.fromEntries([...formData.entries()].filter(([, value]) => value));
+    }
+
+    loadEvents(true);
+
+    const eventSection = $('.event-section');
+    if (eventSection) {
+      eventSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  function clearHealthDrilldown() {
+    state.healthFilter = null;
+    const banner = $('#drilldown-banner');
+    if (banner) banner.hidden = true;
+    $$('.health-cell', $('#health-grid')).forEach((c) => c.classList.remove('is-selected'));
+    state.eventPage = 1;
+    loadEvents(true);
+  }
+
+  function bindEventTableInteraction() {
+    const tableBody = $('#event-table');
+    tableBody?.addEventListener('click', (e) => {
+      const row = e.target.closest('.event-row-clickable');
+      if (!row) return;
+      const idx = Number(row.dataset.eventIdx);
+      const event = state.currentEvents?.[idx];
+      if (event) {
+        $$('.event-row-clickable', tableBody).forEach((r) => r.classList.remove('is-active'));
+        row.classList.add('is-active');
+        openEventDetail(event, row);
+      }
+    });
+    tableBody?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        const row = e.target.closest('.event-row-clickable');
+        if (row && document.activeElement === row) {
+          e.preventDefault();
+          const idx = Number(row.dataset.eventIdx);
+          const event = state.currentEvents?.[idx];
+          if (event) {
+            $$('.event-row-clickable', tableBody).forEach((r) => r.classList.remove('is-active'));
+            row.classList.add('is-active');
+            openEventDetail(event, row);
+          }
+        }
+      }
+    });
+
+    $('#drilldown-clear')?.addEventListener('click', () => {
+      clearHealthDrilldown();
+    });
   }
 
   let tooltipRafId = 0;
@@ -708,8 +814,8 @@
   function animateNumber(el, target, formatter, duration = 450) {
     if (!el) return;
     const end = Number(target || 0);
-    const prev = el.dataset.prevVal !== undefined ? Number(el.dataset.prevVal) : 0;
-    el.dataset.prevVal = String(end);
+    const prev = previousKpiValues.has(el.id) ? previousKpiValues.get(el.id) : end;
+    previousKpiValues.set(el.id, end);
     if (isNaN(end) || Math.abs(end - prev) < 0.000001) {
       el.textContent = formatter(end);
       return;
@@ -1031,8 +1137,11 @@
       const title = pointRequests
         ? `${formattedTime} · 成功 ${formatInt(pointSuccesses)} · 失败 ${formatInt(pointFailures)} · ${formatPercent(rate)}`
         : `${formattedTime} · 无请求`;
-      cell.className = `health-cell level-${level}`;
+      const isSelected = Boolean(state.healthFilter && Number(point.timestamp_ms || 0) === state.healthFilter.from);
+      cell.className = `health-cell level-${level}${isSelected ? ' is-selected' : ''}`;
       cell.dataset.time = formattedTime;
+      cell.dataset.timestamp = String(point.timestamp_ms || 0);
+      cell.dataset.slotMs = String(slotMilliseconds);
       cell.dataset.reqs = String(pointRequests);
       cell.dataset.succs = String(pointSuccesses);
       cell.dataset.fails = String(pointFailures);
@@ -1806,6 +1915,8 @@
     drawer.classList.add('is-open');
     drawer.setAttribute('aria-hidden', 'false');
     $('#drawer-scrim').classList.add('is-open');
+    const subtitleSmall = drawer?.querySelector?.('.drawer-head small');
+    if (subtitleSmall) subtitleSmall.textContent = '上游详情';
     $('#detail-title').textContent = '正在加载...';
     $('#detail-content').innerHTML = '<div class="skeleton" style="height:200px"></div>';
     $('#detail-close').focus();
@@ -1847,6 +1958,87 @@
     }
   }
 
+  function openEventDetail(event, trigger) {
+    state.drawerController?.abort();
+    state.drawerController = null;
+    state.drawerRequestID += 1;
+    const drawer = $('#detail-drawer');
+    state.drawerReturnFocus = trigger || document.activeElement;
+    drawer.inert = false;
+    drawer.classList.add('is-open');
+    drawer.setAttribute('aria-hidden', 'false');
+    $('#drawer-scrim').classList.add('is-open');
+    $('#detail-close').focus();
+
+    const subtitleSmall = drawer?.querySelector?.('.drawer-head small');
+    if (subtitleSmall) subtitleSmall.textContent = '请求详情';
+    $('#detail-title').textContent = `${event.model || '未知模型'} · ${event.failed ? '失败' : '成功'}`;
+
+    const inputTokens = Math.max(0, Number(event.input_tokens || 0));
+    const cacheReadTokens = Math.max(0, Number(event.cache_read_tokens || event.cached_tokens || 0));
+    const cacheCreationTokens = Math.max(0, Number(event.cache_creation_tokens || 0));
+    const uncachedInputTokens = Math.max(0, inputTokens - cacheReadTokens - cacheCreationTokens);
+    const outputTokens = Math.max(0, Number(event.output_tokens || 0));
+    const reasoningTokens = Math.max(0, Number(event.reasoning_tokens || 0));
+    const totalTokens = Math.max(0, Number(event.total_tokens || 0));
+    const hitRate = cacheHitRate(inputTokens, cacheReadTokens);
+    const ttft = Number(event.ttft_ms || 0) > 0 ? formatDuration(event.ttft_ms) : '--';
+    const tps = formatTPS(outputTokens, event.latency_ms, event.ttft_ms);
+    const cost = Number(event.cost_usd || 0);
+
+    const errorMsg = event.failed ? formatErrorMessage(event.failure, event.status_code) : '';
+    const rawFailure = event.failure ? String(event.failure) : '';
+
+    $('#detail-content').innerHTML = `
+      <div class="detail-kpis">
+        ${metric('状态', event.failed ? `<span style="color:var(--red)">失败 ${esc(event.status_code || '')}</span>` : '<span style="color:var(--green)">成功</span>')}
+        ${metric('用时 / 首字', `${formatDuration(event.latency_ms)} / ${ttft}`)}
+        ${metric('总 Token', formatInt(totalTokens))}
+        ${metric('预估费用', formatMoney(cost))}
+      </div>
+      <section class="detail-section">
+        <h3>基本信息</h3>
+        <div class="detail-kv-grid">
+          <div class="kv-item"><span class="kv-label">调用时间</span><strong class="kv-value">${esc(formatDateTime(event.timestamp_ms))}</strong></div>
+          <div class="kv-item"><span class="kv-label">模型</span><strong class="kv-value">${esc(event.model || '--')}</strong></div>
+          <div class="kv-item"><span class="kv-label">渠道 / 上游</span><strong class="kv-value">${esc(event.upstream_label || '--')}</strong></div>
+          <div class="kv-item"><span class="kv-label">客户端标识</span><strong class="kv-value">${esc(event.api_key_hash || '--')}</strong></div>
+          <div class="kv-item"><span class="kv-label">推理强度</span><strong class="kv-value">${esc(event.reasoning_effort || '--')}</strong></div>
+          <div class="kv-item"><span class="kv-label">生成速率 (TPS)</span><strong class="kv-value">${tps}</strong></div>
+        </div>
+      </section>
+      <section class="detail-section">
+        <h3>Token 明细与缓存</h3>
+        <div class="detail-kv-grid">
+          <div class="kv-item"><span class="kv-label">输入 Token</span><strong class="kv-value">${formatInt(uncachedInputTokens)}</strong></div>
+          <div class="kv-item"><span class="kv-label">输出 Token</span><strong class="kv-value">${formatInt(outputTokens)}</strong></div>
+          <div class="kv-item"><span class="kv-label">缓存命中读取</span><strong class="kv-value" style="color:var(--teal)">${formatInt(cacheReadTokens)}</strong></div>
+          <div class="kv-item"><span class="kv-label">缓存写入创建</span><strong class="kv-value" style="color:var(--orange)">${formatInt(cacheCreationTokens)}</strong></div>
+          <div class="kv-item"><span class="kv-label">推理 Token</span><strong class="kv-value" style="color:var(--purple)">${formatInt(reasoningTokens)}</strong></div>
+          <div class="kv-item"><span class="kv-label">缓存命中率</span><strong class="kv-value">${formatPercent(hitRate)}</strong></div>
+        </div>
+      </section>
+      ${event.failed ? `
+      <section class="detail-section">
+        <div class="detail-section-head">
+          <h3>错误与异常诊断</h3>
+          <button type="button" class="copy-action-btn" id="copy-error-btn"><svg><use href="#i-copy"/></svg>复制错误</button>
+        </div>
+        <div class="detail-error-box">${esc(rawFailure || errorMsg || '未知错误')}</div>
+      </section>` : ''}
+      <section class="detail-section detail-action-section">
+        <button type="button" class="secondary-button w-full" id="copy-raw-event-btn"><svg><use href="#i-copy"/></svg>复制完整请求数据 (JSON)</button>
+      </section>
+    `;
+
+    $('#copy-error-btn')?.addEventListener('click', () => {
+      navigator.clipboard?.writeText(rawFailure || errorMsg).then(() => toast('已复制错误信息')).catch(() => toast('复制失败', true));
+    });
+    $('#copy-raw-event-btn')?.addEventListener('click', () => {
+      navigator.clipboard?.writeText(JSON.stringify(event, null, 2)).then(() => toast('已复制完整 JSON 数据')).catch(() => toast('复制失败', true));
+    });
+  }
+
   function bindDrawer() {
     $('#detail-close')?.addEventListener('click', () => closeDrawer(true));
     $('#drawer-scrim')?.addEventListener('click', () => closeDrawer(true));
@@ -1881,9 +2073,30 @@
     drawer.setAttribute('aria-hidden', 'true');
     drawer.inert = true;
     $('#drawer-scrim').classList.remove('is-open');
+    const subtitleSmall = drawer?.querySelector?.('.drawer-head small');
+    if (subtitleSmall) subtitleSmall.textContent = '上游详情';
     const returnFocus = state.drawerReturnFocus;
     state.drawerReturnFocus = null;
     if (restoreFocus && returnFocus?.isConnected) returnFocus.focus();
+  }
+
+  function showEventsSkeleton() {
+    const body = $('#event-table');
+    if (!body) return;
+    const skeletonRows = Array.from({ length: 5 }, () => `
+      <tr class="skeleton-row" aria-hidden="true">
+        <td><div class="skeleton-bar w-70"></div></td>
+        <td><div class="skeleton-bar w-80"></div><div class="skeleton-bar w-50 mt-1"></div></td>
+        <td class="text-center"><div class="skeleton-bar w-40 mx-auto"></div></td>
+        <td class="text-center"><div class="skeleton-badge mx-auto"></div></td>
+        <td class="text-center"><div class="skeleton-bar w-60 mx-auto"></div></td>
+        <td class="text-center"><div class="skeleton-bar w-90 mx-auto"></div></td>
+        <td class="text-center"><div class="skeleton-badge mx-auto"></div></td>
+        <td class="text-center"><div class="skeleton-bar w-60 mx-auto"></div></td>
+        <td class="text-center"><div class="skeleton-bar w-40 mx-auto"></div></td>
+      </tr>
+    `).join('');
+    body.innerHTML = skeletonRows;
   }
 
   async function loadEvents(force = false) {
@@ -1892,6 +2105,7 @@
     const requestID = ++state.eventRequestID;
     state.eventController = controller;
     const params = eventParams();
+    showEventsSkeleton();
     try {
       const data = await cached(`/events?${params}`, force, controller.signal);
       if (requestID !== state.eventRequestID || controller.signal.aborted) return;
@@ -2024,7 +2238,10 @@
   }
 
   function eventParams() {
-    return new URLSearchParams({ range: state.range, page: String(state.eventPage), page_size: '25', ...state.eventFilters });
+    const base = state.healthFilter
+      ? { range: 'custom', from: String(state.healthFilter.from), to: String(state.healthFilter.to) }
+      : { range: state.range };
+    return new URLSearchParams({ ...base, page: String(state.eventPage), page_size: '25', ...state.eventFilters });
   }
 
   function formatTPS(outputTokens, latencyMs, ttftMs) {
@@ -2113,8 +2330,9 @@
     $('#page-label').textContent = data.pages ? `第 ${data.page} / ${data.pages} 页` : '第 0 页';
     $('#page-prev').disabled = data.page <= 1;
     $('#page-next').disabled = !data.pages || data.page >= data.pages;
+    state.currentEvents = data.events || [];
     if (!(data.events || []).length) return emptyRow(body, 9);
-    body.innerHTML = data.events.map((event) => {
+    body.innerHTML = data.events.map((event, index) => {
       const inputTokens = Math.max(0, Number(event.input_tokens || 0));
       const cacheReadTokens = Math.max(0, Number(event.cache_read_tokens || event.cached_tokens || 0));
       const cacheCreationTokens = Math.max(0, Number(event.cache_creation_tokens || 0));
@@ -2130,7 +2348,7 @@
       const errorSubHtml = (event.failed && errorMsg) ? `<span class="cell-sub error-detail-sub" title="${esc(errorMsg)}">${esc(errorMsg)}</span>` : '';
       const tokenCellHtml = renderTokenCell(uncachedInputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens);
       const costCellHtml = renderCostCell(event);
-      return `<tr>
+      return `<tr class="event-row-clickable" data-event-idx="${index}" tabindex="0" role="button" aria-label="查看请求详情" title="点击查看详细信息与诊断日志">
         <td data-label="时间"><span class="cell-main">${esc(formatDateTime(event.timestamp_ms))}</span></td>
         <td data-label="模型 / 渠道"><span class="cell-main" title="${esc(event.model)}">${esc(event.model)}</span><span class="cell-sub" title="${esc(event.upstream_label)}">${esc(event.upstream_label)}</span></td>
         <td data-label="推理强度" class="text-center"><span class="cell-main">${esc(event.reasoning_effort || '--')}</span></td>

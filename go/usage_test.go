@@ -229,6 +229,23 @@ func TestSanitizeFailureOnlyBoundsAndCleansControls(t *testing.T) {
 	}
 }
 
+func TestSanitizersKeepOversizedEventFieldsBounded(t *testing.T) {
+	dimension := "model-" + strings.Repeat("x", 4096)
+	if got := cleanDimension(dimension, "unknown"); len(got) != 160 || got != dimension[:160] {
+		t.Fatalf("cleanDimension length/value = %d/%q, want 160-byte prefix", len(got), got)
+	}
+
+	endpoint := "https://proxy.local/" + strings.Repeat("x", 4096)
+	if got := sanitizeEndpoint(endpoint); len(got) != 256 || got != endpoint[:256] {
+		t.Fatalf("sanitizeEndpoint length/value = %d/%q, want 256-byte prefix", len(got), got)
+	}
+
+	failure := strings.Repeat("x", 4096)
+	if got := sanitizeFailure(failure); len(got) != 512 || got != failure[:512] {
+		t.Fatalf("sanitizeFailure length/value = %d/%q, want 512-byte prefix", len(got), got)
+	}
+}
+
 func BenchmarkEnqueue(b *testing.B) {
 	r := &pluginRuntime{
 		config: runtimeConfig{APIKeyHashSalt: "benchmark"},

@@ -159,6 +159,22 @@ type aggregateRow struct {
 	TTFTCount    int64
 }
 
+type aggregateKey struct {
+	bucket int64
+	model  string
+}
+
+type minuteSpan struct {
+	from int64
+	to   int64
+}
+
+const (
+	summaryAggregateTrendOnly = iota
+	summaryAggregateTrendAndHealth
+	summaryAggregateHealthOnly
+)
+
 func parseRange(query url.Values, now time.Time) (timeRange, error) {
 	now = now.UTC()
 	label := strings.TrimSpace(query.Get("range"))
@@ -252,7 +268,20 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 	if err != nil {
 		return summaryResponse{}, err
 	}
-	rows, err := queryAggregateRows(ctx, store, rng, rng.IntervalMinutes, "", nil)
+	mainFrom, mainTo, boundaries := splitAggregateRange(rng)
+	if rng.Label == "all" && len(boundaries) > 0 {
+		available, err := usageEventsTableAvailable(ctx, store)
+		if err != nil {
+			return summaryResponse{}, err
+		}
+		if !available {
+			mainTo = rng.ToMS / 60000
+			boundaries = nil
+		}
+	}
+	healthRange := chinaHealthRange(now)
+	rows, healthByBucket, err := querySummaryAggregateRows(ctx, store, rng.IntervalMinutes,
+		mainFrom, mainTo, boundaries, healthRange)
 	if err != nil {
 		return summaryResponse{}, err
 	}
@@ -332,23 +361,7 @@ func querySummary(ctx context.Context, store *eventStore, query url.Values, now 
 		}
 	}
 
-	healthRange := chinaHealthRange(now)
-	healthInterval := healthRange.IntervalMinutes
-	healthRows, err := queryAggregateRows(ctx, store, healthRange, healthInterval, "", nil)
-	if err != nil {
-		return summaryResponse{}, err
-	}
-	healthByBucket := make(map[int64]*healthPoint)
-	for _, row := range healthRows {
-		point := healthByBucket[row.Bucket]
-		if point == nil {
-			point = &healthPoint{TimestampMS: row.Bucket * 60000}
-			healthByBucket[row.Bucket] = point
-		}
-		point.Requests += row.Requests
-		point.Failures += row.Failures
-	}
-	appendDenseHealth(&result.Health, healthByBucket, healthRange, healthInterval)
+	appendDenseHealth(&result.Health, healthByBucket, healthRange, healthRange.IntervalMinutes)
 	sort.Slice(result.Health, func(i, j int) bool { return result.Health[i].TimestampMS < result.Health[j].TimestampMS })
 	return result, nil
 }
@@ -452,6 +465,211 @@ func appendDenseHealth(target *[]healthPoint, buckets map[int64]*healthPoint, rn
 	}
 }
 
+func querySummaryAggregateRows(ctx context.Context, store *eventStore, trendInterval, mainFrom, mainTo int64, boundaries []exactRange, healthRange timeRange) ([]aggregateRow, map[int64]*healthPoint, error) {
+	mainSpan, hasMain := minuteSpan{from: mainFrom, to: mainTo}, mainFrom <= mainTo
+	healthFrom, healthTo, _ := splitAggregateRange(healthRange)
+	healthSpan, hasHealth := minuteSpan{from: healthFrom, to: healthTo}, healthFrom <= healthTo
+	var overlap minuteSpan
+	hasOverlap := hasMain && hasHealth
+	if hasOverlap {
+		overlap.from = mainSpan.from
+		if healthSpan.from > overlap.from {
+			overlap.from = healthSpan.from
+		}
+		overlap.to = mainSpan.to
+		if healthSpan.to < overlap.to {
+			overlap.to = healthSpan.to
+		}
+		hasOverlap = overlap.from <= overlap.to
+	}
+
+	parts := make([]string, 0, 2)
+	args := make([]any, 0, 24)
+	spans := make([]minuteSpan, 0, 2)
+	if hasMain {
+		spans = append(spans, mainSpan)
+	}
+	if hasHealth {
+		spans = append(spans, healthSpan)
+	}
+	spans = coalesceMinuteSpans(spans)
+	if len(spans) > 0 {
+		kindCases := make([]string, 0, 2)
+		kindArgs := make([]any, 0, 4)
+		if hasOverlap {
+			kindCases = append(kindCases, "WHEN minute BETWEEN ? AND ? THEN 1")
+			kindArgs = append(kindArgs, overlap.from, overlap.to)
+		}
+		if hasMain {
+			kindCases = append(kindCases, "WHEN minute BETWEEN ? AND ? THEN 0")
+			kindArgs = append(kindArgs, mainSpan.from, mainSpan.to)
+		}
+		kindExpression := "2"
+		if len(kindCases) > 0 {
+			kindExpression = "CASE " + strings.Join(kindCases, " ") + " ELSE 2 END"
+		}
+
+		bucketExpression := ""
+		bucketArgs := make([]any, 0, 16)
+		if hasOverlap {
+			healthBucket, healthBucketArgs := minuteBucketExpression("minute", healthRange.IntervalMinutes)
+			trendBucket, trendBucketArgs := minuteBucketExpression("minute", trendInterval)
+			bucketExpression = "CASE WHEN minute BETWEEN ? AND ? THEN " + healthBucket +
+				" WHEN minute BETWEEN ? AND ? THEN " + trendBucket + " ELSE " + healthBucket + " END"
+			bucketArgs = append(bucketArgs, overlap.from, overlap.to)
+			bucketArgs = append(bucketArgs, healthBucketArgs...)
+			bucketArgs = append(bucketArgs, mainSpan.from, mainSpan.to)
+			bucketArgs = append(bucketArgs, trendBucketArgs...)
+			bucketArgs = append(bucketArgs, healthBucketArgs...)
+		} else if hasMain {
+			trendBucket, trendBucketArgs := minuteBucketExpression("minute", trendInterval)
+			healthBucket, healthBucketArgs := minuteBucketExpression("minute", healthRange.IntervalMinutes)
+			bucketExpression = "CASE WHEN minute BETWEEN ? AND ? THEN " + trendBucket + " ELSE " + healthBucket + " END"
+			bucketArgs = append(bucketArgs, mainSpan.from, mainSpan.to)
+			bucketArgs = append(bucketArgs, trendBucketArgs...)
+			bucketArgs = append(bucketArgs, healthBucketArgs...)
+		} else {
+			var healthBucketArgs []any
+			bucketExpression, healthBucketArgs = minuteBucketExpression("minute", healthRange.IntervalMinutes)
+			bucketArgs = append(bucketArgs, healthBucketArgs...)
+		}
+
+		where, rangeArgs := minuteSpanPredicate(spans)
+		parts = append(parts, `SELECT `+kindExpression+` AS kind, `+bucketExpression+` AS bucket, model,
+			SUM(requests), SUM(successes), SUM(failures), SUM(input_tokens),
+			SUM(output_tokens), SUM(reasoning_tokens), SUM(cached_tokens),
+			SUM(cache_read_tokens), SUM(cache_creation_tokens), SUM(total_tokens),
+			SUM(latency_sum_ms), SUM(ttft_sum_ms), SUM(ttft_count)
+			FROM usage_minute_rollups WHERE `+where+` GROUP BY kind, bucket, model`)
+		args = append(args, kindArgs...)
+		args = append(args, bucketArgs...)
+		args = append(args, rangeArgs...)
+	}
+	if len(boundaries) > 0 {
+		where, rangeArgs := exactRangeWhere("timestamp_ms", boundaries)
+		bucketExpression, bucketArgs := minuteBucketExpression("timestamp_ms / 60000", trendInterval)
+		parts = append(parts, `SELECT 0 AS kind, `+bucketExpression+` AS bucket, model,
+			COUNT(*), SUM(CASE WHEN failed = 0 THEN 1 ELSE 0 END),
+			SUM(CASE WHEN failed != 0 THEN 1 ELSE 0 END), SUM(input_tokens),
+			SUM(output_tokens), SUM(reasoning_tokens), SUM(cached_tokens),
+			SUM(cache_read_tokens), SUM(cache_creation_tokens), SUM(total_tokens),
+			SUM(latency_ms), SUM(ttft_ms), SUM(CASE WHEN ttft_ms > 0 THEN 1 ELSE 0 END)
+			FROM usage_events WHERE `+where+` GROUP BY bucket, model`)
+		args = append(args, bucketArgs...)
+		args = append(args, rangeArgs...)
+	}
+
+	trendByBucket := make(map[aggregateKey]*aggregateRow)
+	healthByBucket := make(map[int64]*healthPoint)
+	if len(parts) == 0 {
+		return nil, healthByBucket, nil
+	}
+	rows, err := store.db.QueryContext(ctx, strings.Join(parts, " UNION ALL "), args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var kind int
+		var row aggregateRow
+		if err := rows.Scan(&kind, &row.Bucket, &row.Model, &row.Requests, &row.Successes, &row.Failures,
+			&row.Tokens.Input, &row.Tokens.Output, &row.Tokens.Reasoning, &row.Tokens.Cached,
+			&row.Tokens.CacheRead, &row.Tokens.CacheWrite, &row.Tokens.Total,
+			&row.LatencySumMS, &row.TTFTSumMS, &row.TTFTCount); err != nil {
+			return nil, nil, err
+		}
+		switch kind {
+		case summaryAggregateTrendOnly:
+			addAggregateRow(trendByBucket, row)
+		case summaryAggregateTrendAndHealth:
+			trendRow := row
+			trendRow.Bucket = timeBucketMinute(row.Bucket, trendInterval)
+			addAggregateRow(trendByBucket, trendRow)
+			addSummaryHealthPoint(healthByBucket, row)
+		case summaryAggregateHealthOnly:
+			addSummaryHealthPoint(healthByBucket, row)
+		default:
+			return nil, nil, fmt.Errorf("unexpected summary aggregate kind %d", kind)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	result := make([]aggregateRow, 0, len(trendByBucket))
+	for _, row := range trendByBucket {
+		result = append(result, *row)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Bucket == result[j].Bucket {
+			return result[i].Model < result[j].Model
+		}
+		return result[i].Bucket < result[j].Bucket
+	})
+	return result, healthByBucket, nil
+}
+
+func minuteBucketExpression(column string, interval int64) (string, []any) {
+	return column + " - ((" + column + " + ?) % ? + ?) % ?", []any{timeBucketOffset(interval), interval, interval, interval}
+}
+
+func minuteSpanPredicate(spans []minuteSpan) (string, []any) {
+	conditions := make([]string, 0, len(spans))
+	args := make([]any, 0, len(spans)*2)
+	for _, span := range spans {
+		conditions = append(conditions, "minute BETWEEN ? AND ?")
+		args = append(args, span.from, span.to)
+	}
+	return "(" + strings.Join(conditions, " OR ") + ")", args
+}
+
+func coalesceMinuteSpans(spans []minuteSpan) []minuteSpan {
+	valid := make([]minuteSpan, 0, len(spans))
+	for _, span := range spans {
+		if span.from <= span.to {
+			valid = append(valid, span)
+		}
+	}
+	sort.Slice(valid, func(i, j int) bool { return valid[i].from < valid[j].from })
+	merged := make([]minuteSpan, 0, len(valid))
+	for _, span := range valid {
+		if len(merged) == 0 || span.from > merged[len(merged)-1].to+1 {
+			merged = append(merged, span)
+			continue
+		}
+		if span.to > merged[len(merged)-1].to {
+			merged[len(merged)-1].to = span.to
+		}
+	}
+	return merged
+}
+
+func addSummaryHealthPoint(points map[int64]*healthPoint, row aggregateRow) {
+	point := points[row.Bucket]
+	if point == nil {
+		point = &healthPoint{TimestampMS: row.Bucket * 60000}
+		points[row.Bucket] = point
+	}
+	point.Requests += row.Requests
+	point.Failures += row.Failures
+}
+
+func addAggregateRow(rows map[aggregateKey]*aggregateRow, row aggregateRow) {
+	key := aggregateKey{bucket: row.Bucket, model: row.Model}
+	current := rows[key]
+	if current == nil {
+		copyOfRow := row
+		rows[key] = &copyOfRow
+		return
+	}
+	current.Requests += row.Requests
+	current.Successes += row.Successes
+	current.Failures += row.Failures
+	addTokens(&current.Tokens, row.Tokens)
+	current.LatencySumMS += row.LatencySumMS
+	current.TTFTSumMS += row.TTFTSumMS
+	current.TTFTCount += row.TTFTCount
+}
+
 func queryAnalysis(ctx context.Context, store *eventStore, query url.Values, now time.Time) (analysisResponse, error) {
 	rng, err := parseRange(query, now)
 	if err != nil {
@@ -466,33 +684,156 @@ func queryAnalysis(ctx context.Context, store *eventStore, query url.Values, now
 		Distributions: make(map[string][]dimensionStat, 4),
 		GeneratedAt:   now.UTC().Format(time.RFC3339),
 	}
-	dimensions := []struct{ response, key, label string }{
-		{"models", "model", "model"},
-		{"providers", "provider", "provider"},
-		{"api_keys", "api_key_hash", "api_key_mask"},
-		{"sources", "source", "source"},
+	dimensions, err := queryAnalysisDimensions(ctx, store, rng, prices)
+	if err != nil {
+		return analysisResponse{}, err
 	}
-	for _, dimension := range dimensions {
-		stats, err := queryDimension(ctx, store, rng, dimension.key, dimension.label, "", "", prices)
-		if err != nil {
-			return analysisResponse{}, err
-		}
-		switch dimension.response {
-		case "api_keys":
-			anonymizeDimensionStats(stats, "key", false)
-		case "sources":
-			maskProviderCredentialStats(stats, false)
-			stats = mergeDimensionStatsByName(stats, "source")
-		}
-		result.Distributions[dimension.response] = stats
-		if dimension.response == "models" {
-			result.Models = stats
-			for _, stat := range stats {
-				addTokens(&result.Tokens, stat.Tokens)
-			}
-		}
+	result.Distributions["models"] = dimensions.models
+	result.Distributions["providers"] = dimensions.providers
+	result.Distributions["api_keys"] = dimensions.apiKeys
+	result.Distributions["sources"] = dimensions.sources
+	result.Models = dimensions.models
+	for _, stat := range result.Models {
+		addTokens(&result.Tokens, stat.Tokens)
 	}
 	return result, nil
+}
+
+func queryAnalysisDimensions(ctx context.Context, store *eventStore, rng timeRange, prices map[string]modelPrice) (analysisDimensionStats, error) {
+	fullFrom, fullTo, boundaries := splitAggregateRange(rng)
+	if rng.Label == "all" && len(boundaries) > 0 {
+		available, err := usageEventsTableAvailable(ctx, store)
+		if err != nil {
+			return analysisDimensionStats{}, err
+		}
+		if !available {
+			fullTo = rng.ToMS / 60000
+			boundaries = nil
+		}
+	}
+
+	parts := make([]string, 0, 2)
+	args := make([]any, 0, 8)
+	if fullFrom <= fullTo {
+		parts = append(parts, `SELECT provider, model, source, api_key_hash, MAX(api_key_mask),
+			SUM(requests), SUM(successes), SUM(failures), SUM(input_tokens), SUM(output_tokens),
+			SUM(reasoning_tokens), SUM(cached_tokens), SUM(cache_read_tokens),
+			SUM(cache_creation_tokens), SUM(total_tokens), SUM(latency_sum_ms)
+			FROM usage_minute_rollups WHERE minute BETWEEN ? AND ?
+			GROUP BY provider, model, source, api_key_hash`)
+		args = append(args, fullFrom, fullTo)
+	}
+	if len(boundaries) > 0 {
+		where, boundaryArgs := exactRangeWhere("timestamp_ms", boundaries)
+		parts = append(parts, `SELECT provider, model, source, api_key_hash, MAX(api_key_mask),
+			COUNT(*), SUM(CASE WHEN failed = 0 THEN 1 ELSE 0 END),
+			SUM(CASE WHEN failed != 0 THEN 1 ELSE 0 END), SUM(input_tokens), SUM(output_tokens),
+			SUM(reasoning_tokens), SUM(cached_tokens), SUM(cache_read_tokens),
+			SUM(cache_creation_tokens), SUM(total_tokens), SUM(latency_ms)
+			FROM usage_events WHERE `+where+`
+			GROUP BY provider, model, source, api_key_hash`)
+		args = append(args, boundaryArgs...)
+	}
+	groups := analysisDimensionStats{
+		models:    make([]dimensionStat, 0),
+		providers: make([]dimensionStat, 0),
+		apiKeys:   make([]dimensionStat, 0),
+		sources:   make([]dimensionStat, 0),
+	}
+	models := make(map[string]*dimensionStat)
+	providers := make(map[string]*dimensionStat)
+	apiKeys := make(map[string]*dimensionStat)
+	sources := make(map[string]*dimensionStat)
+	if len(parts) > 0 {
+		rows, err := store.db.QueryContext(ctx, strings.Join(parts, " UNION ALL "), args...)
+		if err != nil {
+			return analysisDimensionStats{}, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var provider, model, source, apiKeyHash, apiKeyMask string
+			var row dimensionStat
+			if err := rows.Scan(&provider, &model, &source, &apiKeyHash, &apiKeyMask,
+				&row.Requests, &row.Successes, &row.Failures, &row.Tokens.Input, &row.Tokens.Output,
+				&row.Tokens.Reasoning, &row.Tokens.Cached, &row.Tokens.CacheRead,
+				&row.Tokens.CacheWrite, &row.Tokens.Total, &row.latencySum); err != nil {
+				return analysisDimensionStats{}, err
+			}
+			price := resolvePrice(model, prices)
+			accumulateAnalysisDimension(models, model, model, model, provider, model, false, row, price)
+			accumulateAnalysisDimension(providers, provider, provider, provider, provider, model, true, row, price)
+			accumulateAnalysisDimension(apiKeys, apiKeyHash, apiKeyHash, apiKeyMask, provider, model, true, row, price)
+			accumulateAnalysisDimension(sources, provider+"\x00"+source, source, source, provider, model, true, row, price)
+		}
+		if err := rows.Err(); err != nil {
+			return analysisDimensionStats{}, err
+		}
+	}
+
+	groups.models = finalizeAnalysisDimensionMap(models)
+	groups.providers = finalizeAnalysisDimensionMap(providers)
+	groups.apiKeys = finalizeAnalysisDimensionMap(apiKeys)
+	anonymizeDimensionStats(groups.apiKeys, "key", false)
+	groups.sources = finalizeAnalysisDimensionMap(sources)
+	maskProviderCredentialStats(groups.sources, false)
+	groups.sources = mergeDimensionStatsByName(groups.sources, "source")
+	return groups, nil
+}
+
+type analysisDimensionStats struct {
+	models    []dimensionStat
+	providers []dimensionStat
+	apiKeys   []dimensionStat
+	sources   []dimensionStat
+}
+
+func accumulateAnalysisDimension(groups map[string]*dimensionStat, groupKey, key, label, provider, model string, trackModels bool, row dimensionStat, price modelPrice) {
+	stat := groups[groupKey]
+	if stat == nil {
+		stat = &dimensionStat{Key: key, Name: label, provider: provider}
+		if trackModels {
+			stat.modelSet = make(map[string]struct{})
+		} else {
+			stat.Models = 1
+		}
+		groups[groupKey] = stat
+	} else if label > stat.Name {
+		stat.Name = label
+	}
+	stat.Requests += row.Requests
+	stat.Successes += row.Successes
+	stat.Failures += row.Failures
+	stat.latencySum += row.latencySum
+	addTokens(&stat.Tokens, row.Tokens)
+	stat.TotalTokens = stat.Tokens.Total
+	costs := calculateCostTotals(row.Tokens, price)
+	addCosts(&stat.Costs, costs)
+	stat.CostUSD += costs.total()
+	if saved := calculateStandardCost(row.Tokens, price) - costs.total(); saved > 0 {
+		stat.SavedCostUSD += saved
+	}
+	if trackModels {
+		stat.modelSet[model] = struct{}{}
+	}
+}
+
+func finalizeAnalysisDimensionMap(byKey map[string]*dimensionStat) []dimensionStat {
+	result := make([]dimensionStat, 0, len(byKey))
+	for _, stat := range byKey {
+		stat.SuccessRate = ratio(stat.Successes, stat.Requests)
+		stat.AvgLatencyMS = average(stat.latencySum, stat.Requests)
+		if stat.modelSet != nil {
+			stat.Models = len(stat.modelSet)
+		}
+		result = append(result, *stat)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Requests == result[j].Requests {
+			return result[i].Name < result[j].Name
+		}
+		return result[i].Requests > result[j].Requests
+	})
+	return result
 }
 
 func queryInterfaces(ctx context.Context, store *eventStore, query url.Values, now time.Time) (interfacesResponse, error) {
@@ -634,10 +975,6 @@ func queryAggregateRows(ctx context.Context, store *eventStore, rng timeRange, i
 			boundaries = nil
 		}
 	}
-	type aggregateKey struct {
-		bucket int64
-		model  string
-	}
 	merged := make(map[aggregateKey]*aggregateRow)
 	consume := func(rows *sql.Rows) error {
 		defer rows.Close()
@@ -649,20 +986,7 @@ func queryAggregateRows(ctx context.Context, store *eventStore, rng timeRange, i
 				&row.LatencySumMS, &row.TTFTSumMS, &row.TTFTCount); err != nil {
 				return err
 			}
-			key := aggregateKey{bucket: row.Bucket, model: row.Model}
-			current := merged[key]
-			if current == nil {
-				copyOfRow := row
-				merged[key] = &copyOfRow
-				continue
-			}
-			current.Requests += row.Requests
-			current.Successes += row.Successes
-			current.Failures += row.Failures
-			addTokens(&current.Tokens, row.Tokens)
-			current.LatencySumMS += row.LatencySumMS
-			current.TTFTSumMS += row.TTFTSumMS
-			current.TTFTCount += row.TTFTCount
+			addAggregateRow(merged, row)
 		}
 		return rows.Err()
 	}
@@ -856,7 +1180,12 @@ func queryEvents(ctx context.Context, store *eventStore, filter eventFilter) (ev
 		return eventsPage{}, err
 	}
 	var total int64
-	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_events "+where, args...).Scan(&total); err != nil {
+	if canCountEventsFromRollups(filter) {
+		total, err = countEventsFromRollups(ctx, store, filter)
+	} else {
+		err = store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_events "+where, args...).Scan(&total)
+	}
+	if err != nil {
 		return eventsPage{}, err
 	}
 	queryArgs := append(append([]any{}, args...), filter.PageSize, (filter.Page-1)*filter.PageSize)
@@ -899,6 +1228,34 @@ func queryEvents(ctx context.Context, store *eventStore, filter eventFilter) (ev
 		pages = int((total + int64(filter.PageSize) - 1) / int64(filter.PageSize))
 	}
 	return eventsPage{Events: events, Total: total, Page: filter.Page, PageSize: filter.PageSize, Pages: pages, GeneratedAt: time.Now().UTC().Format(time.RFC3339)}, rows.Err()
+}
+
+func canCountEventsFromRollups(filter eventFilter) bool {
+	return filter.FromMS >= 0 && filter.ToMS > 0 && filter.ToMS >= filter.FromMS && filter.Model == "" &&
+		filter.Provider == "" && filter.APIKeyHash == "" && filter.Upstream == "" &&
+		filter.Status == "" && filter.Search == ""
+}
+
+func countEventsFromRollups(ctx context.Context, store *eventStore, filter eventFilter) (int64, error) {
+	fullFrom, fullTo, boundaries := splitAggregateRange(timeRange{FromMS: filter.FromMS, ToMS: filter.ToMS})
+	parts := make([]string, 0, 1+len(boundaries))
+	args := make([]any, 0, 2+len(boundaries)*2)
+	if fullFrom <= fullTo {
+		parts = append(parts, `SELECT COALESCE(SUM(requests), 0) AS request_count
+			FROM usage_minute_rollups WHERE minute BETWEEN ? AND ?`)
+		args = append(args, fullFrom, fullTo)
+	}
+	for _, boundary := range boundaries {
+		parts = append(parts, `SELECT COUNT(*) AS request_count FROM usage_events
+			WHERE timestamp_ms BETWEEN ? AND ?`)
+		args = append(args, boundary.FromMS, boundary.ToMS)
+	}
+	statement := `SELECT COALESCE(SUM(request_count), 0) FROM (` + strings.Join(parts, " UNION ALL ") + `) AS event_counts`
+	var total int64
+	if err := store.db.QueryRowContext(ctx, statement, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
 }
 
 const publicIdentifierSalt = "usage-keeper-public-label"

@@ -70,6 +70,21 @@ func TestDashboardContentContract(t *testing.T) {
 	if strings.Count(cssText, "{") != strings.Count(cssText, "}") {
 		t.Fatalf("CSS braces are unbalanced: %d open / %d close", strings.Count(cssText, "{"), strings.Count(cssText, "}"))
 	}
+	mobileStart := strings.Index(cssText, "@media (max-width: 560px)")
+	if mobileStart < 0 {
+		t.Fatal("mobile drawer layout breakpoint is missing")
+	}
+	for _, token := range []string{
+		"top: max(8px, env(safe-area-inset-top, 8px));",
+		"width: auto !important;", "max-height: none !important;",
+		".detail-drawer.is-open {\n    transform: none;",
+		"#detail-content {\n    flex: 1 1 auto;\n    min-height: 0;",
+		"height: auto !important;",
+	} {
+		if !strings.Contains(cssText[mobileStart:], token) {
+			t.Fatalf("mobile drawer CSS is missing %q", token)
+		}
+	}
 	for _, token := range []string{".interface-card", ".progress-cell", ".chart-host-interactive", ".floating-glass-tooltip"} {
 		if !strings.Contains(cssText, token) {
 			t.Fatalf("dashboard CSS is missing %q", token)
