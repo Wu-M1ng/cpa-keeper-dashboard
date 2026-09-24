@@ -381,10 +381,21 @@
   }
 
   function bindSettings() {
-    $('#add-price').addEventListener('click', () => appendPriceRow({}));
+    $('#add-price').addEventListener('click', () => {
+      const row = appendPriceRow({});
+      if (row) {
+        setTimeout(() => {
+          row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          row.querySelector('[data-price-field="model"]')?.focus();
+        }, 20);
+      }
+    });
     $('#save-prices').addEventListener('click', savePrices);
     $('#export-prices-btn').addEventListener('click', exportPricesJSON);
     $('#autofill-prices-btn').addEventListener('click', autoFillUnpricedModels);
+
+    // Close floating model picker on table container scroll
+    $('.price-section .table-wrap')?.addEventListener('scroll', closeModelPicker, { passive: true });
 
     // Search filter
     $('#price-search').addEventListener('input', (e) => applyPriceFilter(e.target.value));
@@ -492,7 +503,12 @@
         $$('[data-price-field]', row).forEach((input) => {
           price[input.dataset.priceField] = input.dataset.priceField === 'model' ? (input.value ? `${input.value}-copy` : '') : input.value;
         });
-        appendPriceRow(price);
+        const newRow = appendPriceRow(price);
+        if (newRow) {
+          setTimeout(() => {
+            newRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }, 20);
+        }
         toast('已复制模型行');
       }
     });
@@ -835,32 +851,72 @@
   function renderKPIs(kpi, trend) {
     const rangeLabels = { '24h': '24 小时', '7d': '7 天', '30d': '30 天', all: '全部' };
     const rangeLabel = rangeLabels[kpi.range_label] || kpi.range_label || rangeLabels[state.range];
-    $('#overview-kpis').innerHTML = `<div class="kpi-row-top">
-      <article class="kpi-panel theme-daily"><div class="kpi-header"><h3 class="kpi-title">日均用量</h3><span class="kpi-badge-pill">统计范围 ${esc(rangeLabel)}</span></div><div class="kpi-daily-list">
-        <div class="kpi-daily-item" style="--metric-accent: var(--blue);">
-          <span class="kpi-di-icon">${icon('activity')}</span>
-          <span class="kpi-di-copy"><span class="kpi-di-label">日均请求</span></span>
-          <strong class="kpi-di-val kpi-num-animate" id="kpi-val-daily-req">${formatCompact(kpi.avg_requests_daily)}</strong>
-        </div>
-        <div class="kpi-daily-item" style="--metric-accent: var(--purple);">
-          <span class="kpi-di-icon">${icon('diamond')}</span>
-          <span class="kpi-di-copy"><span class="kpi-di-label">日均 Token</span></span>
-          <strong class="kpi-di-val kpi-num-animate" id="kpi-val-daily-tok">${formatCompact(kpi.avg_tokens_daily)}</strong>
-        </div>
-        <div class="kpi-daily-item" style="--metric-accent: var(--yellow);">
-          <span class="kpi-di-icon">${icon('dollar')}</span>
-          <span class="kpi-di-copy"><span class="kpi-di-label">日均费用</span></span>
-          <strong class="kpi-di-val kpi-num-animate" id="kpi-val-daily-cost">${formatMoney(kpi.avg_cost_daily)}</strong>
-        </div>
-      </div></article>
-      <article class="kpi-panel theme-blue"><div class="kpi-header"><h3 class="kpi-title">总请求数</h3><div class="kpi-icon-badge theme-blue">${icon('activity')}</div></div><strong class="kpi-main-val kpi-num-animate" id="kpi-val-req">${formatInt(kpi.requests)}</strong><div class="kpi-sub-info"><span class="dot-success">成功: ${formatInt(kpi.successes)}</span><span class="dot-failed">失败: ${formatInt(kpi.failures)}</span><span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span></div><div class="sparkline-box" style="--card-theme:var(--blue)">${makeSparkline(trend, 'requests', '#326ff5', 'requests')}</div></article>
-      <article class="kpi-panel theme-purple"><div class="kpi-header"><h3 class="kpi-title">总 Token 消耗</h3><div class="kpi-icon-badge theme-purple">${icon('diamond')}</div></div><strong class="kpi-main-val kpi-num-animate" id="kpi-val-tok">${formatCompact(kpi.total_tokens)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span><span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--purple)">${makeSparkline(trend, 'tokens', '#a98bff', 'tokens')}</div></article>
-    </div><div class="kpi-row-bottom">
-      <article class="kpi-panel theme-green"><div class="kpi-header"><h3 class="kpi-title">RPM</h3><div class="kpi-icon-badge theme-green">${icon('clock')}</div></div><strong class="kpi-main-val kpi-num-animate" id="kpi-val-rpm">${formatNumber(kpi.rpm, 2)}</strong><div class="kpi-sub-info"><span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span></div><div class="sparkline-box" style="--card-theme:var(--green)">${makeSparkline(trend, 'requests', '#42d982', 'rpm')}</div></article>
-      <article class="kpi-panel theme-orange"><div class="kpi-header"><h3 class="kpi-title">TPM</h3><div class="kpi-icon-badge theme-orange">${icon('trend-up')}</div></div><strong class="kpi-main-val kpi-num-animate" id="kpi-val-tpm">${formatCompact(kpi.tpm)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--orange)">${makeSparkline(trend, 'tokens', '#ff7a12', 'tpm')}</div></article>
-      <article class="kpi-panel theme-teal"><div class="kpi-header"><h3 class="kpi-title">缓存命中率</h3><div class="kpi-icon-badge theme-teal">${icon('percent')}</div></div><strong class="kpi-main-val kpi-num-animate" id="kpi-val-cache">${formatPercent(kpi.cache_rate)}</strong><div class="kpi-sub-info"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--teal)">${makeSparkline(trend, 'hit_rate', '#18ad9d', 'cache')}</div></article>
-      <article class="kpi-panel theme-yellow"><div class="kpi-header"><h3 class="kpi-title">总费用</h3><div class="kpi-icon-badge theme-yellow">${icon('dollar')}</div></div><strong class="kpi-main-val kpi-num-animate" id="kpi-val-cost">${formatMoney(kpi.cost_usd)}</strong><div class="kpi-sub-info"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" style="--card-theme:var(--yellow)">${makeSparkline(trend, 'actual_cost', '#ffb35c', 'cost')}</div></article>
-    </div>`;
+    const host = $('#overview-kpis');
+    if (!host) return;
+
+    const existing = host.querySelector('.kpi-row-top');
+    if (!existing) {
+      host.innerHTML = `<div class="kpi-row-top">
+        <article class="kpi-panel theme-daily"><div class="kpi-header"><h3 class="kpi-title">日均用量</h3><span class="kpi-badge-pill" id="kpi-range-badge">统计范围 ${esc(rangeLabel)}</span></div><div class="kpi-daily-list">
+          <div class="kpi-daily-item" style="--metric-accent: var(--blue);">
+            <span class="kpi-di-icon">${icon('activity')}</span>
+            <span class="kpi-di-copy"><span class="kpi-di-label">日均请求</span></span>
+            <strong class="kpi-di-val" id="kpi-val-daily-req">${formatCompact(kpi.avg_requests_daily)}</strong>
+          </div>
+          <div class="kpi-daily-item" style="--metric-accent: var(--purple);">
+            <span class="kpi-di-icon">${icon('diamond')}</span>
+            <span class="kpi-di-copy"><span class="kpi-di-label">日均 Token</span></span>
+            <strong class="kpi-di-val" id="kpi-val-daily-tok">${formatCompact(kpi.avg_tokens_daily)}</strong>
+          </div>
+          <div class="kpi-daily-item" style="--metric-accent: var(--yellow);">
+            <span class="kpi-di-icon">${icon('dollar')}</span>
+            <span class="kpi-di-copy"><span class="kpi-di-label">日均费用</span></span>
+            <strong class="kpi-di-val" id="kpi-val-daily-cost">${formatMoney(kpi.avg_cost_daily)}</strong>
+          </div>
+        </div></article>
+        <article class="kpi-panel theme-blue"><div class="kpi-header"><h3 class="kpi-title">总请求数</h3><div class="kpi-icon-badge theme-blue">${icon('activity')}</div></div><strong class="kpi-main-val" id="kpi-val-req">${formatInt(kpi.requests)}</strong><div class="kpi-sub-info" id="kpi-sub-req"><span class="dot-success">成功: ${formatInt(kpi.successes)}</span><span class="dot-failed">失败: ${formatInt(kpi.failures)}</span><span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span></div><div class="sparkline-box" id="kpi-spark-req" style="--card-theme:var(--blue)">${makeSparkline(trend, 'requests', '#2563eb', 'requests')}</div></article>
+        <article class="kpi-panel theme-purple"><div class="kpi-header"><h3 class="kpi-title">总 Token 消耗</h3><div class="kpi-icon-badge theme-purple">${icon('diamond')}</div></div><strong class="kpi-main-val" id="kpi-val-tok">${formatCompact(kpi.total_tokens)}</strong><div class="kpi-sub-info" id="kpi-sub-tok"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span><span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span></div><div class="sparkline-box" id="kpi-spark-tok" style="--card-theme:var(--purple)">${makeSparkline(trend, 'tokens', '#7c3aed', 'tokens')}</div></article>
+      </div><div class="kpi-row-bottom">
+        <article class="kpi-panel theme-green"><div class="kpi-header"><h3 class="kpi-title">RPM</h3><div class="kpi-icon-badge theme-green">${icon('clock')}</div></div><strong class="kpi-main-val" id="kpi-val-rpm">${formatNumber(kpi.rpm, 2)}</strong><div class="kpi-sub-info" id="kpi-sub-rpm"><span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span></div><div class="sparkline-box" id="kpi-spark-rpm" style="--card-theme:var(--green)">${makeSparkline(trend, 'requests', '#16a34a', 'rpm')}</div></article>
+        <article class="kpi-panel theme-orange"><div class="kpi-header"><h3 class="kpi-title">TPM</h3><div class="kpi-icon-badge theme-orange">${icon('trend-up')}</div></div><strong class="kpi-main-val" id="kpi-val-tpm">${formatCompact(kpi.tpm)}</strong><div class="kpi-sub-info" id="kpi-sub-tpm"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" id="kpi-spark-tpm" style="--card-theme:var(--orange)">${makeSparkline(trend, 'tokens', '#ea580c', 'tpm')}</div></article>
+        <article class="kpi-panel theme-teal"><div class="kpi-header"><h3 class="kpi-title">缓存命中率</h3><div class="kpi-icon-badge theme-teal">${icon('percent')}</div></div><strong class="kpi-main-val" id="kpi-val-cache">${formatPercent(kpi.cache_rate)}</strong><div class="kpi-sub-info" id="kpi-sub-cache"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span></div><div class="sparkline-box" id="kpi-spark-cache" style="--card-theme:var(--teal)">${makeSparkline(trend, 'hit_rate', '#0d9488', 'cache')}</div></article>
+        <article class="kpi-panel theme-yellow"><div class="kpi-header"><h3 class="kpi-title">总费用</h3><div class="kpi-icon-badge theme-yellow">${icon('dollar')}</div></div><strong class="kpi-main-val" id="kpi-val-cost">${formatMoney(kpi.cost_usd)}</strong><div class="kpi-sub-info" id="kpi-sub-cost"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" id="kpi-spark-cost" style="--card-theme:var(--yellow)">${makeSparkline(trend, 'actual_cost', '#d97706', 'cost')}</div></article>
+      </div>`;
+    } else {
+      const badge = $('#kpi-range-badge');
+      if (badge) badge.textContent = `统计范围 ${rangeLabel}`;
+
+      const subReq = $('#kpi-sub-req');
+      if (subReq) subReq.innerHTML = `<span class="dot-success">成功: ${formatInt(kpi.successes)}</span><span class="dot-failed">失败: ${formatInt(kpi.failures)}</span><span class="plain-item">成功率: ${formatPercent(kpi.success_rate)}</span>`;
+
+      const subTok = $('#kpi-sub-tok');
+      if (subTok) subTok.innerHTML = `<span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">缓存写入: ${formatCompact(kpi.cache_write_tokens)}</span><span class="plain-item">推理: ${formatCompact(kpi.reasoning_tokens)}</span>`;
+
+      const subRpm = $('#kpi-sub-rpm');
+      if (subRpm) subRpm.innerHTML = `<span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span>`;
+
+      const subTpm = $('#kpi-sub-tpm');
+      if (subTpm) subTpm.innerHTML = `<span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span>`;
+
+      const subCache = $('#kpi-sub-cache');
+      if (subCache) subCache.innerHTML = `<span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span>`;
+
+      const subCost = $('#kpi-sub-cost');
+      if (subCost) subCost.innerHTML = `<span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span>`;
+
+      const sparkReq = $('#kpi-spark-req');
+      if (sparkReq) sparkReq.innerHTML = makeSparkline(trend, 'requests', '#2563eb', 'requests');
+      const sparkTok = $('#kpi-spark-tok');
+      if (sparkTok) sparkTok.innerHTML = makeSparkline(trend, 'tokens', '#7c3aed', 'tokens');
+      const sparkRpm = $('#kpi-spark-rpm');
+      if (sparkRpm) sparkRpm.innerHTML = makeSparkline(trend, 'requests', '#16a34a', 'rpm');
+      const sparkTpm = $('#kpi-spark-tpm');
+      if (sparkTpm) sparkTpm.innerHTML = makeSparkline(trend, 'tokens', '#ea580c', 'tpm');
+      const sparkCache = $('#kpi-spark-cache');
+      if (sparkCache) sparkCache.innerHTML = makeSparkline(trend, 'hit_rate', '#0d9488', 'cache');
+      const sparkCost = $('#kpi-spark-cost');
+      if (sparkCost) sparkCost.innerHTML = makeSparkline(trend, 'actual_cost', '#d97706', 'cost');
+    }
 
     animateNumber($('#kpi-val-daily-req'), kpi.avg_requests_daily, formatCompact);
     animateNumber($('#kpi-val-daily-tok'), kpi.avg_tokens_daily, formatCompact);
@@ -2579,6 +2635,7 @@
 
     row.innerHTML = modelCellHtml + priceCellsHtml + actionsCellHtml;
     $('#price-table').appendChild(row);
+    return row;
   }
 
   function getTablePrices() {
