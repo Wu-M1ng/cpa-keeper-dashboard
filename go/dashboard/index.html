@@ -86,7 +86,7 @@
                   <button class="legend-chip is-active" data-dim="input" aria-pressed="true" style="--chip-color:#326ff5"><span class="chip-circle" style="background:#326ff5"></span><span>输入</span></button>
                   <button class="legend-chip is-active" data-dim="output" aria-pressed="true" style="--chip-color:#20b95a"><span class="chip-circle" style="background:#20b95a"></span><span>输出</span></button>
                   <button class="legend-chip is-active" data-dim="cache_write" aria-pressed="true" style="--chip-color:#ff7a12"><span class="chip-circle" style="background:#ff7a12"></span><span>缓存创建</span></button>
-                  <button class="legend-chip is-active" data-dim="cache_read" aria-pressed="true" style="--chip-color:#18ad9d"><span class="chip-circle" style="background:#18ad9d"></span><span>缓存读取</span></button>
+                  <button class="legend-chip is-active" data-dim="cache_read" aria-pressed="true" style="--chip-color:#059669"><span class="chip-circle" style="background:#059669"></span><span>缓存读取</span></button>
                   <button class="legend-chip is-active" data-dim="hit_rate" aria-pressed="true" style="--chip-color:#7738ee"><span class="chip-circle chip-dashed" style="background:#7738ee;border:2px dashed #7738ee"></span><span>缓存命中率</span></button>
                 </div>
               </div>
@@ -119,6 +119,7 @@
           <div class="runtime-strip" id="runtime-strip" data-region="runtime"></div>
           <div class="overview-section event-section" data-region="events">
             <form class="filter-bar" id="event-filters" aria-label="请求明细筛选">
+              <input type="hidden" name="upstream" id="filter-upstream">
               <label><span>搜索</span><input name="q" type="search" placeholder="输入模型、渠道或关键字"></label>
               <label><span>Provider</span><select name="provider"><option value="">全部</option></select></label>
               <label><span>模型</span><select name="model"><option value="">全部</option></select></label>

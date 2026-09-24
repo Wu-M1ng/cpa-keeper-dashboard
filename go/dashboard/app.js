@@ -9,7 +9,7 @@
   const CHINA_TIME_ZONE = 'Asia/Shanghai';
   const HEALTH_DAYS = 5;
   const HEALTH_SLOTS_PER_DAY = 96;
-  const COLORS = ['#326ff5', '#7738ee', '#20b95a', '#ff7a12', '#18ad9d', '#e44e3f'];
+  const COLORS = ['#326ff5', '#7738ee', '#20b95a', '#ff7a12', '#059669', '#e44e3f'];
   const pageMeta = {
     overview: ['总览', '运行状态与用量脉搏'],
     interfaces: ['接口', '客户端与上游调用结构'],
@@ -201,6 +201,8 @@
     $('#event-reset').addEventListener('click', (event) => {
       event.preventDefault();
       $('#event-filters').reset();
+      const filterUpstream = $('#filter-upstream');
+      if (filterUpstream) filterUpstream.value = '';
       state.eventFilters = {};
       state.healthFilter = null;
       const banner = $('#drilldown-banner');
@@ -325,6 +327,11 @@
     const banner = $('#drilldown-banner');
     if (banner) banner.hidden = true;
     $$('.health-cell', $('#health-grid')).forEach((c) => c.classList.remove('is-selected'));
+    const filterUpstream = $('#filter-upstream');
+    if (filterUpstream) filterUpstream.value = '';
+    const qInput = $('#event-filters input[name="q"]');
+    if (qInput && filterUpstream) qInput.value = '';
+    state.eventFilters = {};
     state.eventPage = 1;
     loadEvents(true);
   }
@@ -879,7 +886,7 @@
       </div><div class="kpi-row-bottom">
         <article class="kpi-panel theme-green"><div class="kpi-header"><h3 class="kpi-title">RPM</h3><div class="kpi-icon-badge theme-green">${icon('clock')}</div></div><strong class="kpi-main-val" id="kpi-val-rpm">${formatNumber(kpi.rpm, 2)}</strong><div class="kpi-sub-info" id="kpi-sub-rpm"><span class="plain-item">总请求数: ${formatInt(kpi.requests)}</span></div><div class="sparkline-box" id="kpi-spark-rpm" style="--card-theme:var(--green)">${makeSparkline(trend, 'requests', '#16a34a', 'rpm')}</div></article>
         <article class="kpi-panel theme-orange"><div class="kpi-header"><h3 class="kpi-title">TPM</h3><div class="kpi-icon-badge theme-orange">${icon('trend-up')}</div></div><strong class="kpi-main-val" id="kpi-val-tpm">${formatCompact(kpi.tpm)}</strong><div class="kpi-sub-info" id="kpi-sub-tpm"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" id="kpi-spark-tpm" style="--card-theme:var(--orange)">${makeSparkline(trend, 'tokens', '#ea580c', 'tpm')}</div></article>
-        <article class="kpi-panel theme-teal"><div class="kpi-header"><h3 class="kpi-title">缓存命中率</h3><div class="kpi-icon-badge theme-teal">${icon('percent')}</div></div><strong class="kpi-main-val" id="kpi-val-cache">${formatPercent(kpi.cache_rate)}</strong><div class="kpi-sub-info" id="kpi-sub-cache"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span></div><div class="sparkline-box" id="kpi-spark-cache" style="--card-theme:var(--teal)">${makeSparkline(trend, 'hit_rate', '#0d9488', 'cache')}</div></article>
+        <article class="kpi-panel theme-teal"><div class="kpi-header"><h3 class="kpi-title">缓存命中率</h3><div class="kpi-icon-badge theme-teal">${icon('percent')}</div></div><strong class="kpi-main-val" id="kpi-val-cache">${formatPercent(kpi.cache_rate)}</strong><div class="kpi-sub-info" id="kpi-sub-cache"><span class="plain-item">缓存读取: ${formatCompact(kpi.cache_read_tokens)}</span><span class="plain-item">输入: ${formatCompact(kpi.input_tokens)}</span></div><div class="sparkline-box" id="kpi-spark-cache" style="--card-theme:var(--teal)">${makeSparkline(trend, 'hit_rate', '#059669', 'cache')}</div></article>
         <article class="kpi-panel theme-yellow"><div class="kpi-header"><h3 class="kpi-title">总费用</h3><div class="kpi-icon-badge theme-yellow">${icon('dollar')}</div></div><strong class="kpi-main-val" id="kpi-val-cost">${formatMoney(kpi.cost_usd)}</strong><div class="kpi-sub-info" id="kpi-sub-cost"><span class="plain-item">总 Token: ${formatCompact(kpi.total_tokens)}</span></div><div class="sparkline-box" id="kpi-spark-cost" style="--card-theme:var(--yellow)">${makeSparkline(trend, 'actual_cost', '#d97706', 'cost')}</div></article>
       </div>`;
     } else {
@@ -913,7 +920,7 @@
       const sparkTpm = $('#kpi-spark-tpm');
       if (sparkTpm) sparkTpm.innerHTML = makeSparkline(trend, 'tokens', '#ea580c', 'tpm');
       const sparkCache = $('#kpi-spark-cache');
-      if (sparkCache) sparkCache.innerHTML = makeSparkline(trend, 'hit_rate', '#0d9488', 'cache');
+      if (sparkCache) sparkCache.innerHTML = makeSparkline(trend, 'hit_rate', '#059669', 'cache');
       const sparkCost = $('#kpi-spark-cost');
       if (sparkCost) sparkCost.innerHTML = makeSparkline(trend, 'actual_cost', '#d97706', 'cost');
     }
@@ -974,7 +981,7 @@
       { key: 'input', label: '输入', color: '#2f6bf2', axis: 'token', strokeWidth: 3 },
       { key: 'output', label: '输出', color: '#16a34a', axis: 'token', strokeWidth: 3 },
       { key: 'cache_write', label: '缓存创建', color: '#ea580c', axis: 'token', strokeWidth: 3 },
-      { key: 'cache_read', label: '缓存读取', color: '#00bcd4', axis: 'token', area: true, strokeWidth: 3.8 },
+      { key: 'cache_read', label: '缓存读取', color: '#059669', axis: 'token', area: true, strokeWidth: 3.8 },
       { key: 'hit_rate', label: '缓存命中率', color: '#8b5cf6', axis: 'rate', dashed: true, strokeWidth: 3.2 },
     ];
     const active = state.trendActiveDims;
@@ -1994,39 +2001,212 @@
     drawer.setAttribute('aria-hidden', 'false');
     $('#drawer-scrim').classList.add('is-open');
     const subtitleSmall = drawer?.querySelector?.('.drawer-head small');
-    if (subtitleSmall) subtitleSmall.textContent = '上游详情';
+    if (subtitleSmall) subtitleSmall.textContent = '上游渠道全景详情';
     $('#detail-title').textContent = '正在加载...';
     $('#detail-content').innerHTML = '<div class="skeleton" style="height:200px"></div>';
     $('#detail-close').focus();
     try {
       const data = await api(`/upstream?range=${encodeURIComponent(state.range)}&key=${encodeURIComponent(key)}`, { signal: controller.signal });
       if (requestID !== state.drawerRequestID || controller.signal.aborted) return;
-      $('#detail-title').textContent = data.name || key;
+      const displayName = data.name || key;
+      $('#detail-title').textContent = displayName;
+
       const summary = data.summary || {};
       const models = data.models || [];
       const events = data.recent_events || [];
-      const recentEventsHtml = events.map((event) => {
-        const errText = event.failed ? formatErrorMessage(event.failure, event.status_code) : '';
-        const titleText = errText ? `${event.model} (${errText})` : event.model;
-        return `<div class="distribution-row" title="${esc(titleText)}"><i style="background:${event.failed ? 'var(--red)' : 'var(--green)'}"></i><span>${esc(event.model)} · ${esc(formatDateTime(event.timestamp_ms))}${errText ? ` <small style="color:var(--red)">(${esc(errText)})</small>` : ''}</span><strong>${formatDuration(event.latency_ms)}</strong></div>`;
-      }).join('') || '<span class="cell-sub">暂无数据</span>';
+
+      const totalRequests = Number(summary.requests || 0);
+      const successes = Number(summary.successes || 0);
+      const failures = Number(summary.failures || 0);
+      const successRate = Number(summary.success_rate || 0);
+      const avgLatency = Number(summary.avg_latency_ms || 0);
+      const costUsd = Number(summary.cost_usd || 0);
+
+      // Diagnostic error distribution
+      const errorMap = new Map();
+      events.forEach((ev) => {
+        if (ev.failed) {
+          const code = ev.status_code || '异常';
+          errorMap.set(code, (errorMap.get(code) || 0) + 1);
+        }
+      });
+      const errorBreakdown = [...errorMap.entries()]
+        .map(([code, count]) => `${code}: ${count}次`)
+        .join(', ');
+
+      const availPillClass = successRate >= 0.99 ? 'is-good' : (successRate < 0.95 && totalRequests > 0 ? 'is-bad' : '');
+      const latPillClass = avgLatency > 0 && avgLatency < 1000 ? 'is-good' : (avgLatency > 3000 ? 'is-bad' : '');
+      const statusPillClass = failures === 0 ? 'is-good' : 'is-bad';
+
+      const providerBadge = data.provider
+        ? `<span class="upstream-provider-tag">${icon('database')} ${esc(data.provider)}</span>`
+        : `<span class="upstream-provider-tag">${icon('database')} 上游服务商</span>`;
+
+      // Token details
+      const tokens = summary.tokens || {};
+      const inputTok = Math.max(0, Number(tokens.input || 0));
+      const outputTok = Math.max(0, Number(tokens.output || 0));
+      const cacheReadTok = Math.max(0, Number(tokens.cache_read || 0));
+      const cacheWriteTok = Math.max(0, Number(tokens.cache_write || 0));
+      const hitRate = cacheHitRate(inputTok, cacheReadTok);
+
+      // Model distribution
+      const modelsHtml = models.length > 0
+        ? models.map((item) => {
+            const mReq = Number(item.requests || 0);
+            const pct = totalRequests > 0 ? (mReq / totalRequests * 100) : 0;
+            const mLatency = Number(item.avg_latency_ms || 0);
+            const mSuccess = Number(item.success_rate || 0);
+            return `
+              <div class="upstream-model-row">
+                <div class="upstream-model-header">
+                  <span class="upstream-model-name" title="${esc(item.name)}">${esc(item.name)}</span>
+                  <span class="upstream-model-stats">
+                    <strong>${formatInt(mReq)} 次</strong> (${pct.toFixed(1)}%) · ${formatPercent(mSuccess)} 成功率 · ${formatDuration(mLatency)}
+                  </span>
+                </div>
+                <div class="upstream-model-bar-wrap">
+                  <div class="upstream-model-bar-fill" style="width: ${Math.min(100, Math.max(pct, 2)).toFixed(1)}%"></div>
+                </div>
+              </div>
+            `;
+          }).join('')
+        : '<span class="cell-sub">当前监控区间无活跃模型调用</span>';
+
+      // Recent events
+      const eventsHtml = events.length > 0
+        ? events.map((event, idx) => {
+            const isErr = Boolean(event.failed);
+            const errText = isErr ? formatErrorMessage(event.failure, event.status_code) : '';
+            const ttftStr = Number(event.first_token_ms || 0) > 0 ? formatDuration(event.first_token_ms) : '--';
+            const tpsStr = formatTPS(event.output_tokens, event.latency_ms, event.first_token_ms);
+            const costStr = formatMoney(event.cost_usd || 0);
+            const totalTokStr = formatInt(event.total_tokens || 0);
+            return `
+              <div class="upstream-event-card ${isErr ? 'is-failed' : ''}" data-event-idx="${idx}">
+                <div class="upstream-event-card-head">
+                  <div class="upstream-event-left">
+                    <span class="status-pulse-dot ${isErr ? 'is-err' : ''}"></span>
+                    <span class="upstream-event-model" title="${esc(event.model)}">${esc(event.model || '未知模型')}</span>
+                    <span class="upstream-event-time">${esc(formatDateTime(event.timestamp_ms))}</span>
+                  </div>
+                  <div class="upstream-event-right">
+                    <span style="color: ${isErr ? 'var(--red)' : 'var(--muted-strong)'}">${formatDuration(event.latency_ms)}</span>
+                    <span class="badge ${isErr ? 'badge-failed' : 'badge-success'}" style="font-size:9.5px;padding:1px 5px;">${isErr ? esc(event.status_code || '异常') : '200 OK'}</span>
+                    <svg class="upstream-event-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                  </div>
+                </div>
+                <div class="upstream-event-expand">
+                  <div class="upstream-event-expand-grid">
+                    <div><span class="cell-sub">首字延迟 (TTFT):</span> <strong>${ttftStr}</strong></div>
+                    <div><span class="cell-sub">生成速度 (TPS):</span> <strong>${tpsStr}</strong></div>
+                    <div><span class="cell-sub">消耗 Token:</span> <strong>${totalTokStr}</strong></div>
+                    <div><span class="cell-sub">单次费用:</span> <strong>${costStr}</strong></div>
+                  </div>
+                  ${isErr && errText ? `<div style="margin-bottom:8px;padding:6px 9px;border-radius:var(--radius-xs);background:color-mix(in srgb, var(--red) 8%, var(--surface));color:var(--red);font-size:10.5px;word-break:break-all;"><strong>失败原因:</strong> ${esc(errText)}</div>` : ''}
+                  <div style="display:flex;justify-content:flex-end;">
+                    <button type="button" class="secondary-button compact-btn view-event-detail-btn" data-event-idx="${idx}">
+                      ${icon('eye')} 查看单次完整报文
+                    </button>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')
+        : '<span class="cell-sub">暂无近期请求监控记录</span>';
 
       $('#detail-content').innerHTML = `
-        <div class="detail-kpis">
-          ${metric('请求', formatInt(summary.requests))}
-          ${metric('成功率', formatPercent(summary.success_rate))}
-          ${metric('Token', formatCompact(summary.total_tokens))}
-          ${metric('平均延迟', formatDuration(summary.avg_latency_ms))}
+        <div class="upstream-meta-banner">
+          <div class="upstream-meta-top">
+            ${providerBadge}
+            <div class="upstream-diag-pills">
+              <span class="diag-pill ${availPillClass}">可用率 ${formatPercent(successRate)}</span>
+              <span class="diag-pill ${latPillClass}">均延时 ${formatDuration(avgLatency)}</span>
+              <span class="diag-pill ${statusPillClass}">${failures > 0 ? `${formatInt(failures)} 次异常${errorBreakdown ? ` (${esc(errorBreakdown)})` : ''}` : '运行健康 (0 异常)'}</span>
+            </div>
+          </div>
         </div>
+
+        <div class="detail-kpis">
+          ${metric('总请求 / 成功', `<strong>${formatInt(totalRequests)}</strong><small class="cell-sub" style="margin-left:3px;font-size:10px;">(${formatInt(successes)} 成功)</small>`)}
+          ${metric('SLA 可用率', `<strong style="color:${successRate >= 0.95 ? 'var(--green)' : 'var(--red)'}">${formatPercent(successRate)}</strong>`)}
+          ${metric('平均耗时', `<strong>${formatDuration(avgLatency)}</strong>`)}
+          ${metric('总预估费用', `<strong>${formatMoney(costUsd)}</strong>`)}
+        </div>
+
         <section class="detail-section">
-          <h3>模型</h3>
-          ${models.map((item) => `<div class="distribution-row"><i style="background:var(--accent)"></i><span>${esc(item.name)}</span><strong>${formatInt(item.requests)}</strong></div>`).join('') || '<span class="cell-sub">暂无数据</span>'}
+          <h3>模型调用分布 (共 ${models.length} 个模型)</h3>
+          ${modelsHtml}
         </section>
+
         <section class="detail-section">
-          <h3>近期事件</h3>
-          ${recentEventsHtml}
+          <h3>Token 消耗与缓存收益</h3>
+          <div class="upstream-token-grid">
+            <div class="token-micro-card">
+              <span class="token-micro-label">输入 Token</span>
+              <strong class="token-micro-val">${formatCompact(inputTok)}</strong>
+            </div>
+            <div class="token-micro-card">
+              <span class="token-micro-label">输出 Token</span>
+              <strong class="token-micro-val">${formatCompact(outputTok)}</strong>
+            </div>
+            <div class="token-micro-card" style="border-color:color-mix(in srgb, var(--teal) 35%, var(--line));">
+              <span class="token-micro-label" style="color:var(--teal);">缓存命中读取</span>
+              <strong class="token-micro-val" style="color:var(--teal);">${formatCompact(cacheReadTok)}</strong>
+            </div>
+            <div class="token-micro-card">
+              <span class="token-micro-label">缓存写入</span>
+              <strong class="token-micro-val">${formatCompact(cacheWriteTok)}</strong>
+            </div>
+          </div>
+          <div class="cache-saving-banner">
+            ${icon('sparkles')}
+            <span>缓存命中率 <strong>${hitRate}</strong> · 累计通过缓存读取节省 <strong>${formatCompact(cacheReadTok)}</strong> Token 传输</span>
+          </div>
         </section>
+
+        <section class="detail-section">
+          <h3>近期请求监控 (最近 ${events.length} 条)</h3>
+          ${eventsHtml}
+        </section>
+
+        <div class="upstream-actions-bar">
+          <button type="button" class="primary-button compact-btn" id="drilldown-upstream-btn">
+            ${icon('activity')} 在请求明细表中下钻
+          </button>
+          <button type="button" class="secondary-button compact-btn" id="copy-upstream-key-btn">
+            ${icon('copy')} 复制标识
+          </button>
+        </div>
       `;
+
+      // Safe event listener binding (supports real browser and headless unit test environment)
+      const content = $('#detail-content');
+      if (content?.querySelectorAll) {
+        content.querySelectorAll('.upstream-event-card').forEach((card) => {
+          card.addEventListener('click', (e) => {
+            if (e.target.closest('.view-event-detail-btn')) return;
+            card.classList.toggle('is-expanded');
+          });
+        });
+        content.querySelectorAll('.view-event-detail-btn').forEach((btn) => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = Number(btn.dataset.eventIdx);
+            const ev = events[idx];
+            if (ev) openEventDetail(ev, btn);
+          });
+        });
+      }
+
+      $('#drilldown-upstream-btn')?.addEventListener?.('click', () => {
+        drilldownUpstream(key, displayName);
+      });
+      $('#copy-upstream-key-btn')?.addEventListener?.('click', () => {
+        navigator.clipboard?.writeText(key)
+          .then(() => toast('已复制上游通道标识'))
+          .catch(() => toast('复制失败', true));
+      });
     } catch (error) {
       if (requestID !== state.drawerRequestID || controller.signal.aborted || error.name === 'AbortError') return;
       $('#detail-title').textContent = '加载失败';
@@ -2034,6 +2214,39 @@
     } finally {
       if (requestID === state.drawerRequestID) state.drawerController = null;
     }
+  }
+
+  function drilldownUpstream(key, name) {
+    closeDrawer(false);
+    const filterUpstream = $('#filter-upstream');
+    if (filterUpstream) filterUpstream.value = key;
+    const qInput = $('#event-filters input[name="q"]');
+    if (qInput) qInput.value = name || key;
+    state.eventFilters = { ...state.eventFilters, upstream: key };
+    state.eventPage = 1;
+    const banner = $('#drilldown-banner');
+    const bannerText = $('#drilldown-text');
+    if (banner && bannerText) {
+      bannerText.textContent = `已锁定上游：${name || key}`;
+      banner.hidden = false;
+    }
+    if (state.page !== 'overview') {
+      state.page = 'overview';
+      const targetBtn = $(`.nav-item[data-page-target="overview"]`);
+      $$('.nav-item').forEach((item) => item.classList.toggle('is-active', item === targetBtn));
+      $$('.page').forEach((item) => item.classList.toggle('is-active', item.dataset.page === 'overview'));
+      $('#page-title').textContent = pageMeta.overview[0];
+      $('#page-subtitle').textContent = pageMeta.overview[1];
+      $('#range-control').hidden = false;
+      loadActivePage(false);
+    } else {
+      loadEvents(true);
+    }
+    const eventSec = $('.event-section');
+    if (eventSec?.scrollIntoView) {
+      eventSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    toast(`已筛选上游：${name || key}`);
   }
 
   function openEventDetail(event, trigger) {
