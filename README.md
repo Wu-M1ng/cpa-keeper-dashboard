@@ -56,13 +56,13 @@ CLIProxyAPI 的轻量级用量记录与分析插件。插件接收 CLIProxyAPI �
 在仓库根目录运行：
 
 ```powershell
-.\scripts\build.ps1 -Version 1.6.5
+.\scripts\build.ps1 -Version 1.6.6
 ```
 
 指定目标平台：
 
 ```powershell
-.\scripts\build.ps1 -Version 1.6.5 -GoOS windows -GoArch amd64
+.\scripts\build.ps1 -Version 1.6.6 -GoOS windows -GoArch amd64
 ```
 
 构建产物位于 `release/`，脚本会同时生成压缩包和 SHA-256 校验文件。
@@ -92,7 +92,7 @@ Node 回归测试会调用 Go 测试生成真实 API JSON，检查上游详情�
 
 ## 发布
 
-插件当前版本为 **1.6.5**。更新 `registry.json` 中的版本号并推送到 `main` 后，GitHub Actions 自动创建对应的 `vMAJOR.MINOR.PATCH` 标签，并构建各平台压缩包和校验文件；已发布的版本会跳过，发布失败时可复用已有标签重试。
+插件当前版本为 **1.6.6**。更新 `registry.json` 中的版本号并推送到 `main` 后，GitHub Actions 自动创建对应的 `vMAJOR.MINOR.PATCH` 标签，并构建各平台压缩包和校验文件；已发布的版本会跳过，发布失败时可复用已有标签重试。
 
 ## 目录结构
 

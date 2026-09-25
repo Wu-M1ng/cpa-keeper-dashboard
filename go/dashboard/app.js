@@ -1062,7 +1062,7 @@
       if (trendCaption && summary.range) {
         const from = formatDateTime(summary.range.from_ms);
         const to = formatDateTime(summary.range.to_ms);
-        trendCaption.textContent = `统计范围：${from} – ${to}（中国标准时间） · 输入、输出、缓存与命中率趋势`;
+        trendCaption.textContent = `统计范围：${from} – ${to}（中国标准时间）`;
       }
       renderKPIs(summary.kpi || {}, summary.trend || []);
     renderTrend(summary.trend || []);
