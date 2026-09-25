@@ -41,7 +41,12 @@ func handleManagement(request managementRequest) managementResponse {
 	if runtime == nil {
 		return errorResponse(http.StatusServiceUnavailable, "runtime_unavailable", errRuntimeUnavailable.Error())
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	timeout := 15 * time.Second
+	if (request.Method == http.MethodPost && request.Path == managementPrefix+"/restore") ||
+		(request.Method == http.MethodGet && request.Path == managementPrefix+"/backup") {
+		timeout = 2 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	now := managementNow()
 
@@ -66,6 +71,11 @@ func handleManagement(request managementRequest) managementResponse {
 			result, err := queryUpstreamDetail(ctx, runtime.store, request.Query.Get("key"), request.Query, now)
 			return queryJSON(result, err)
 		})
+	case http.MethodGet + " " + managementPrefix + "/events/dates":
+		return runtime.cachedRead(managementCacheKey(request), func() managementResponse {
+			days, err := queryEventDays(ctx, runtime.store)
+			return queryJSON(map[string]any{"days": days}, err)
+		})
 	case http.MethodGet + " " + managementPrefix + "/events":
 		filter, err := parseEventFilter(request.Query, now)
 		if err != nil {
@@ -82,6 +92,9 @@ func handleManagement(request managementRequest) managementResponse {
 		maxRecords := runtime.config.ExportMax
 		runtime.configMu.RUnlock()
 		body, err := exportEventsCSV(ctx, runtime.store, filter, maxRecords)
+		if errors.Is(err, errCSVLimitExceeded) {
+			return errorResponse(http.StatusConflict, "csv_limit_exceeded", "请求明细超过 CSV 导出上限，请提高 export_max_records 或缩小筛选范围后重试")
+		}
 		if err != nil {
 			return internalError()
 		}
@@ -103,22 +116,25 @@ func handleManagement(request managementRequest) managementResponse {
 		runtime.configMu.RLock()
 		maxRecords := runtime.config.ExportMax
 		runtime.configMu.RUnlock()
-		backup, err := exportBackup(ctx, runtime.store, maxRecords)
+		body, err := runtime.exportBackupJSON(ctx, maxRecords)
+		if errors.Is(err, errRuntimeUnavailable) {
+			return errorResponse(http.StatusServiceUnavailable, "runtime_unavailable", err.Error())
+		}
+		if errors.Is(err, errBackupLimitExceeded) {
+			return errorResponse(http.StatusConflict, "backup_limit_exceeded", "请求明细超过备份上限，请提高 export_max_records 后重试")
+		}
 		if err != nil {
 			return internalError()
 		}
-		body, _ := json.MarshalIndent(backup, "", "  ")
 		return downloadResponse("usage-keeper-backup.json", "application/json; charset=utf-8", body)
 	case http.MethodPost + " " + managementPrefix + "/restore":
 		var payload backupPayload
 		if len(request.Body) == 0 || json.Unmarshal(request.Body, &payload) != nil {
 			return errorResponse(http.StatusBadRequest, "invalid_backup", "备份 JSON 无效")
 		}
-		runtime.settingsMu.Lock()
-		defer runtime.settingsMu.Unlock()
-		result, err := importBackup(ctx, runtime.store, payload)
-		if err == nil {
-			runtime.readCache.clear()
+		result, err := runtime.restoreBackup(ctx, payload)
+		if errors.Is(err, errRuntimeUnavailable) {
+			return errorResponse(http.StatusServiceUnavailable, "runtime_unavailable", err.Error())
 		}
 		if errors.Is(err, errInvalidBackup) {
 			return errorResponse(http.StatusBadRequest, "invalid_backup", err.Error())
@@ -157,12 +173,17 @@ func parseEventFilter(query url.Values, now time.Time) (eventFilter, error) {
 	if status != "" && status != "success" && status != "failure" {
 		return eventFilter{}, errors.New("status must be success or failure")
 	}
-	return eventFilter{
+	filter := eventFilter{
 		FromMS: rng.FromMS, ToMS: rng.ToMS, Model: cleanQueryValue(query.Get("model")),
 		Provider: cleanQueryValue(query.Get("provider")), APIKeyHash: cleanQueryValue(query.Get("api_key")),
 		Upstream: cleanQueryValue(query.Get("upstream")), Status: status,
 		Search: cleanQueryValue(query.Get("q")), Page: page, PageSize: pageSize,
-	}, nil
+	}
+	normalizeEventFilter(&filter)
+	if _, err := eventPageOffset(filter); err != nil {
+		return eventFilter{}, err
+	}
+	return filter, nil
 }
 
 func optionalPositiveInt(value string, fallback int) (int, error) {

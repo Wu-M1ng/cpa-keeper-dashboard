@@ -92,10 +92,17 @@ func TestManagementRegistrationUsesExactRoutes(t *testing.T) {
 	if len(registration.Routes) < 10 {
 		t.Fatalf("management routes = %d, want complete dashboard API", len(registration.Routes))
 	}
+	foundEventDays := false
 	for _, route := range registration.Routes {
 		if route.Path == "" || route.Method == "" {
 			t.Fatalf("route must be exact: %+v", route)
 		}
+		if route.Method == "GET" && route.Path == "/plugins/usage-keeper/events/dates" {
+			foundEventDays = true
+		}
+	}
+	if !foundEventDays {
+		t.Fatal("calendar dates endpoint must be registered with the management host")
 	}
 }
 

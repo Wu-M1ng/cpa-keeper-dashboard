@@ -29,6 +29,11 @@ func TestDashboardAssetsAreEmbeddedAndSelfContained(t *testing.T) {
 	}
 	for _, expected := range []string{
 		`class="top-nav"`,
+		`data-range="custom"`,
+		`id="custom-range-form"`,
+		`id="custom-range-from"`,
+		`id="custom-range-to"`,
+		`id="range-calendars"`,
 		`id="overview-kpis"`,
 		`data-page-target="overview"`,
 		`data-page-target="interfaces"`,

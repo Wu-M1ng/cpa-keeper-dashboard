@@ -18,6 +18,7 @@
   const state = {
     page: 'overview',
     range: '24h',
+    customRange: null,
     managementKey: readManagementKey(),
     loading: false,
     pendingRequests: 0,
@@ -40,10 +41,12 @@
     eventController: null,
     drawerController: null,
     drawerReturnFocus: null,
+    reportedStorageErrors: new Set(),
   };
   const previousKpiValues = new Map();
   let autoRefreshTimer = 0;
   let resizeTimer = 0;
+  const calendar = { days: new Set(), from: '', to: '', editing: 'from', month: '', requestID: 0, loading: false, returnFocus: null };
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -164,6 +167,8 @@
       $('#page-title').textContent = pageMeta[page][0];
       $('#page-subtitle').textContent = pageMeta[page][1];
       $('#range-control').hidden = page === 'settings';
+      renderRangeSummary();
+      if (page === 'settings') hideCustomRangeForm();
       closeDrawer(false);
       loadActivePage(false);
     }));
@@ -171,23 +176,262 @@
   }
 
   function bindRange() {
+    renderRangeSummary();
+    $('#custom-range-summary').addEventListener('click', () => {
+      $('#range-control [data-range="custom"]').click();
+    });
+    document.addEventListener('pointerdown', (event) => {
+      const form = $('#custom-range-form');
+      if (form.hidden || form.contains(event.target) || event.target.closest('#range-control') || event.target.closest('#custom-range-summary')) return;
+      hideCustomRangeForm();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || $('#custom-range-form').hidden) return;
+      hideCustomRangeForm(true);
+    });
     $$('#range-control button').forEach((button) => button.addEventListener('click', () => {
-      state.range = button.dataset.range;
-      state.drawerController?.abort();
-      state.drawerController = null;
-      state.drawerRequestID++;
-      closeDrawer(false);
-      state.cache.clear();
-      $$('#range-control button').forEach((item) => item.classList.toggle('is-active', item === button));
-      state.eventPage = 1;
-      state.eventFilters = {};
-      state.healthFilter = null;
-      const banner = $('#drilldown-banner');
-      if (banner) banner.hidden = true;
-      $$('.health-cell', $('#health-grid')).forEach((c) => c.classList.remove('is-selected'));
-      $('#event-filters').reset();
-      loadActivePage(true);
+      if (button.dataset.range === 'custom') {
+        const form = $('#custom-range-form');
+        if (form.hidden) {
+          calendar.returnFocus = document.activeElement || button;
+          form.hidden = false;
+          button.setAttribute('aria-expanded', 'true');
+          $('#custom-range-summary').setAttribute('aria-expanded', 'true');
+          calendar.from = state.range === 'custom' ? chinaMillisToInput(state.customRange.from).slice(0, 10) : '';
+          calendar.to = state.range === 'custom' ? chinaMillisToInput(state.customRange.to).slice(0, 10) : '';
+          calendar.editing = calendar.from && !calendar.to ? 'to' : 'from';
+          $('#custom-range-from-time').value = state.range === 'custom' ? chinaMillisToInput(state.customRange.from).slice(11, 19) : '00:00:00';
+          $('#custom-range-to-time').value = state.range === 'custom' ? chinaMillisToInput(state.customRange.to).slice(11, 19) : '23:59:59';
+          updateCalendarSelection();
+          loadCalendarDays();
+          $('#custom-range-from').focus();
+        } else {
+          hideCustomRangeForm();
+        }
+        return;
+      }
+      activateRange(button.dataset.range);
     }));
+    for (const side of ['from', 'to']) {
+      $(`#custom-range-${side}`).addEventListener('click', () => {
+        calendar.editing = side;
+        updateCalendarSelection();
+      });
+      $(`#custom-range-${side}-time`).addEventListener('input', updateCalendarSelection);
+    }
+    $('#range-calendars').addEventListener('click', (event) => {
+      const nav = event.target.closest('[data-calendar-shift]');
+      if (nav && !nav.disabled) {
+        calendar.month = shiftMonth(calendar.month, Number(nav.dataset.calendarShift));
+        renderCalendars();
+        return;
+      }
+      const day = event.target.closest('[data-calendar-day]');
+      if (!day || day.disabled || !calendar.days.has(day.dataset.calendarDay)) return;
+      const value = day.dataset.calendarDay;
+      if (calendar.editing === 'from') {
+        calendar.from = value;
+        if (calendar.to && calendar.to < value) calendar.to = '';
+        calendar.editing = 'to';
+      } else if (calendar.from && value < calendar.from) {
+        calendar.from = value;
+        calendar.to = '';
+      } else {
+        calendar.to = value;
+      }
+      updateCalendarSelection();
+      if (event.detail === 0) $(`[data-calendar-day="${value}"]`, $('#range-calendars'))?.focus();
+    });
+    $('#custom-range-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (calendar.loading || !calendar.days.has(calendar.from) || !calendar.days.has(calendar.to)) return;
+      const from = chinaInputToMillis(`${calendar.from}T${$('#custom-range-from-time').value}`);
+      const to = chinaInputToMillis(`${calendar.to}T${$('#custom-range-to-time').value}`);
+      const error = $('#custom-range-error');
+      if (from === null || to === null || from > to) {
+        error.textContent = '请选择有效的起止时间，结束时间需晚于开始时间';
+        error.hidden = false;
+        return;
+      }
+      error.hidden = true;
+      state.customRange = { from, to: to + 999 };
+      activateRange('custom');
+    });
+    $('#custom-range-cancel').addEventListener('click', () => hideCustomRangeForm(true));
+  }
+
+  function hideCustomRangeForm(restoreFocus = false) {
+    const returnFocus = calendar.returnFocus;
+    calendar.requestID++;
+    $('#custom-range-form').hidden = true;
+    $('#custom-range-error').hidden = true;
+    $('#range-control [data-range="custom"]').setAttribute('aria-expanded', 'false');
+    $('#custom-range-summary').setAttribute('aria-expanded', 'false');
+    calendar.returnFocus = null;
+    if (restoreFocus) (returnFocus?.isConnected ? returnFocus : $('#range-control [data-range="custom"]')).focus();
+  }
+
+  async function loadCalendarDays() {
+    const requestID = ++calendar.requestID;
+    calendar.loading = true;
+    calendar.days.clear();
+    $('#range-calendars').innerHTML = '<p class="range-calendar-status" role="status">正在加载可选日期…</p>';
+    updateCalendarSelection();
+    try {
+      const result = await api('/events/dates');
+      if (requestID !== calendar.requestID) return;
+      calendar.days = new Set((result.days || []).filter(isCalendarDay));
+      const sorted = [...calendar.days].sort();
+      if (!calendar.days.has(calendar.from)) calendar.from = '';
+      if (!calendar.days.has(calendar.to)) calendar.to = '';
+      calendar.month = (calendar.from || sorted.at(-1) || '').slice(0, 7);
+      if (calendar.month && sorted.length > 1) calendar.month = shiftMonth(calendar.month, -1);
+      calendar.loading = false;
+      updateCalendarSelection();
+    } catch (error) {
+      if (requestID !== calendar.requestID) return;
+      calendar.loading = false;
+      $('#range-calendars').innerHTML = `<p class="range-calendar-status" role="status">${esc(error.name === 'AuthRequired' ? '请先验证 Management Key' : '可选日期加载失败，请重新打开选择器')}</p>`;
+      updateCalendarSelection(false);
+    }
+  }
+
+  function isCalendarDay(value) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }
+
+  function shiftMonth(month, offset) {
+    const [year, number] = month.split('-').map(Number);
+    return new Date(Date.UTC(year, number - 1 + offset, 1)).toISOString().slice(0, 7);
+  }
+
+  function renderCalendars() {
+    if (!calendar.days.size) {
+      $('#range-calendars').innerHTML = '<p class="range-calendar-status" role="status">暂无请求明细记录</p>';
+      return;
+    }
+    const days = [...calendar.days].sort();
+    const first = days[0].slice(0, 7);
+    const last = days.at(-1).slice(0, 7);
+    const previous = shiftMonth(calendar.month, -1);
+    const next = shiftMonth(calendar.month, 1);
+    const monthMarkup = (month) => {
+      const [year, number] = month.split('-').map(Number);
+      const firstWeekday = new Date(Date.UTC(year, number - 1, 1)).getUTCDay();
+      const count = new Date(Date.UTC(year, number, 0)).getUTCDate();
+      const blanks = '<span class="range-calendar-empty"></span>'.repeat(firstWeekday);
+      const dates = Array.from({ length: count }, (_, index) => {
+        const date = `${month}-${String(index + 1).padStart(2, '0')}`;
+        const enabled = calendar.days.has(date);
+        const selected = date === calendar.from || date === calendar.to;
+        const inside = calendar.from && calendar.to && date > calendar.from && date < calendar.to;
+        return `<button type="button" class="range-calendar-day${selected ? ' is-selected' : ''}${inside ? ' is-between' : ''}" data-calendar-day="${date}" aria-label="${date}"${selected ? ' aria-pressed="true"' : ''}${enabled ? '' : ' disabled'}>${index + 1}</button>`;
+      }).join('');
+      return `<div class="range-calendar-month"><h3>${year} 年 ${number} 月</h3><div class="range-calendar-grid">${['日', '一', '二', '三', '四', '五', '六'].map((day) => `<span class="range-calendar-weekday">${day}</span>`).join('')}${blanks}${dates}</div></div>`;
+    };
+    $('#range-calendars').innerHTML = `<div class="range-calendar-nav"><button type="button" data-calendar-shift="-1" aria-label="上个月" title="上个月"${previous < first ? ' disabled' : ''}>${icon('chevron-left')}</button><span>选择有记录的日期</span><button type="button" data-calendar-shift="1" aria-label="下个月" title="下个月"${next > last ? ' disabled' : ''}>${icon('chevron-right')}</button></div><div class="range-calendar-months">${monthMarkup(calendar.month)}${monthMarkup(next)}</div>`;
+  }
+
+  function updateCalendarSelection(render = true) {
+    for (const side of ['from', 'to']) {
+      const button = $(`#custom-range-${side}`);
+      button.textContent = calendar[side] || '选择日期';
+      button.classList.toggle('is-editing', calendar.editing === side);
+      button.setAttribute('aria-pressed', String(calendar.editing === side));
+    }
+    const from = chinaInputToMillis(`${calendar.from}T${$('#custom-range-from-time').value}`);
+    const to = chinaInputToMillis(`${calendar.to}T${$('#custom-range-to-time').value}`);
+    $('#custom-range-apply').disabled = calendar.loading || !calendar.days.has(calendar.from) || !calendar.days.has(calendar.to) || from === null || to === null || from > to;
+    $('#custom-range-error').hidden = true;
+    if (render && !calendar.loading) renderCalendars();
+  }
+
+  function activateRange(range) {
+    state.range = range;
+    hideCustomRangeForm(range === 'custom');
+    renderRangeSummary();
+    state.drawerController?.abort();
+    state.drawerController = null;
+    state.drawerRequestID++;
+    closeDrawer(false);
+    state.cache.clear();
+    $$('#range-control button').forEach((item) => item.classList.toggle('is-active', item.dataset.range === range));
+    state.eventPage = 1;
+    state.eventFilters = {};
+    renderEventFilterChips();
+    state.healthFilter = null;
+    const banner = $('#drilldown-banner');
+    if (banner) banner.hidden = true;
+    $$('.health-cell', $('#health-grid')).forEach((c) => c.classList.remove('is-selected'));
+    $('#event-filters').reset();
+    loadActivePage(true);
+  }
+
+  function chinaInputToMillis(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
+    if (!match) return null;
+    const [, yearText, monthText, dayText, hourText, minuteText, secondText = '0'] = match;
+    const [year, month, day, hour, minute, second] = [yearText, monthText, dayText, hourText, minuteText, secondText].map(Number);
+    if (year < 1970) return null;
+    const utc = Date.UTC(year, month - 1, day, hour, minute, second);
+    const date = new Date(utc);
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 ||
+        date.getUTCDate() !== day || date.getUTCHours() !== hour || date.getUTCMinutes() !== minute || date.getUTCSeconds() !== second) return null;
+    return utc - 8 * 60 * 60 * 1000;
+  }
+
+  function chinaMillisToInput(value) {
+    return new Date(value + 8 * 60 * 60 * 1000).toISOString().slice(0, 19);
+  }
+
+  function activeRangeParams() {
+    return state.range === 'custom'
+      ? { range: 'custom', from: String(state.customRange.from), to: String(state.customRange.to) }
+      : { range: state.range };
+  }
+
+  function renderRangeSummary() {
+    const button = $('#custom-range-summary');
+    const value = $('#custom-range-summary-value');
+    const hasCustomRange = state.range === 'custom' && state.customRange;
+    button.hidden = !hasCustomRange || state.page === 'settings';
+    if (!hasCustomRange) return;
+    const from = chinaMillisToInput(state.customRange.from).replace('T', ' ');
+    const to = chinaMillisToInput(state.customRange.to - 999).replace('T', ' ');
+    const label = `${from} 至 ${to}`;
+    value.textContent = label;
+    button.setAttribute('aria-label', `当前自定义时间范围：${label}，点击修改`);
+  }
+
+  function renderEventFilterChips() {
+    const container = $('#event-filter-chips');
+    const statusLabels = { success: '成功', failure: '失败' };
+    const filters = state.eventFilters || {};
+    const entries = [
+      ['q', '搜索'],
+      ['provider', 'Provider'],
+      ['model', '模型'],
+      ['status', '状态'],
+      ['upstream', '上游筛选'],
+    ].filter(([name]) => filters[name]).map(([name, label]) => {
+      const field = $(`#event-filters [name="${name}"]`);
+      let displayValue = filters[name];
+      if (name === 'upstream') {
+        displayValue = '已选';
+      } else if (name === 'status') {
+        displayValue = statusLabels[filters[name]] || filters[name];
+      } else if ((name === 'provider' || name === 'model') && field) {
+        const option = field.options?.[field.selectedIndex];
+        if (option && String(option.value) === String(filters[name])) displayValue = option.textContent;
+      }
+      return [name, label, displayValue];
+    });
+    container.hidden = entries.length === 0;
+    container.innerHTML = entries.map(([name, label, value]) =>
+      `<span class="active-filter-chip"><span class="active-filter-chip-text">${esc(label)}：${esc(value)}</span><button type="button" data-remove-event-filter="${name}" aria-label="移除${esc(label)}筛选" title="移除${esc(label)}筛选">${icon('x')}</button></span>`,
+    ).join('');
   }
 
   function bindEvents() {
@@ -195,6 +439,7 @@
       event.preventDefault();
       const form = new FormData(event.currentTarget);
       state.eventFilters = Object.fromEntries([...form.entries()].filter(([, value]) => value));
+      renderEventFilterChips();
       state.eventPage = 1;
       loadEvents(true);
     });
@@ -204,10 +449,26 @@
       const filterUpstream = $('#filter-upstream');
       if (filterUpstream) filterUpstream.value = '';
       state.eventFilters = {};
+      renderEventFilterChips();
       state.healthFilter = null;
       const banner = $('#drilldown-banner');
       if (banner) banner.hidden = true;
       $$('.health-cell', $('#health-grid')).forEach((c) => c.classList.remove('is-selected'));
+      state.eventPage = 1;
+      loadEvents(true);
+    });
+    $('#event-filter-chips').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-remove-event-filter]');
+      const name = button?.dataset.removeEventFilter;
+      if (!name || !Object.prototype.hasOwnProperty.call(state.eventFilters, name)) return;
+      delete state.eventFilters[name];
+      const field = $(`#event-filters [name="${name}"]`);
+      if (field) {
+        field.value = '';
+        if (name === 'provider' || name === 'model' || name === 'status') syncCustomSelectOptions(field);
+      }
+      if (name === 'upstream') $('#drilldown-banner').hidden = true;
+      renderEventFilterChips();
       state.eventPage = 1;
       loadEvents(true);
     });
@@ -286,8 +547,20 @@
       cell.classList.add('is-selected');
 
       const timeLabel = cell.dataset.time || '';
-      applyHealthDrilldown(timestamp, timestamp + slotMs, timeLabel, fails > 0, fails);
+      // The query end is inclusive, so stop one millisecond before the next cell.
+      applyHealthDrilldown(timestamp, timestamp + slotMs - 1, timeLabel, fails > 0, fails);
     });
+  }
+
+  function setEventFilterForm(filters) {
+    const next = filters || {};
+    ['q', 'provider', 'model', 'status', 'upstream'].forEach((name) => {
+      const field = $(`#event-filters [name="${name}"]`);
+      if (field) field.value = next[name] || '';
+    });
+    $$('#event-filters select').forEach((select) => syncCustomSelectOptions(select));
+    state.eventFilters = Object.fromEntries(Object.entries(next).filter(([, value]) => value));
+    renderEventFilterChips();
   }
 
   function applyHealthDrilldown(fromMs, toMs, timeLabel, hasFailures, failCount) {
@@ -301,18 +574,8 @@
       banner.hidden = false;
     }
 
-    const statusSelect = $('#event-filters [name="status"]');
-    if (statusSelect) {
-      if (hasFailures) {
-        statusSelect.value = 'failure';
-      }
-      syncCustomSelectOptions(statusSelect);
-    }
-    const form = $('#event-filters');
-    if (form) {
-      const formData = new FormData(form);
-      state.eventFilters = Object.fromEntries([...formData.entries()].filter(([, value]) => value));
-    }
+    // A health cell counts every request in that slot, so drop earlier filters.
+    setEventFilterForm({ status: hasFailures ? 'failure' : '' });
 
     loadEvents(true);
 
@@ -327,11 +590,7 @@
     const banner = $('#drilldown-banner');
     if (banner) banner.hidden = true;
     $$('.health-cell', $('#health-grid')).forEach((c) => c.classList.remove('is-selected'));
-    const filterUpstream = $('#filter-upstream');
-    if (filterUpstream) filterUpstream.value = '';
-    const qInput = $('#event-filters input[name="q"]');
-    if (qInput && filterUpstream) qInput.value = '';
-    state.eventFilters = {};
+    setEventFilterForm({});
     state.eventPage = 1;
     loadEvents(true);
   }
@@ -650,7 +909,9 @@
 
   async function cached(path, force = false, signal) {
     const requestURL = new URL(path, window.location.origin);
-    if (!requestURL.searchParams.has('range')) requestURL.searchParams.set('range', state.range);
+    if (!requestURL.searchParams.has('range')) {
+      for (const [key, value] of Object.entries(activeRangeParams())) requestURL.searchParams.set(key, value);
+    }
     const requestPath = requestURL.pathname + requestURL.search;
     const cacheKey = `${CACHE_PREFIX}${cacheScope()}:${requestPath}`;
 
@@ -762,7 +1023,16 @@
         showAuthDialog();
         throw namedError('AuthRequired', 'Management Key 已失效');
       }
-      if (!response.ok) throw new Error(`导出失败 (${response.status})`);
+      if (!response.ok) {
+        let message = `导出失败 (${response.status})`;
+        if ((response.headers.get('content-type') || '').includes('json')) {
+          try {
+            const body = await response.json();
+            message = body?.error?.message || message;
+          } catch (_) { /* Keep the HTTP status when the error body is malformed. */ }
+        }
+        throw new Error(message);
+      }
       const blob = await response.blob();
       const href = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -810,7 +1080,6 @@
     if (requestID !== state.loadRequestID || signal.aborted || eventRequestID !== state.eventRequestID) return;
     const events = await cached(`/events?${params}`, force, signal);
     if (requestID !== state.loadRequestID || signal.aborted || eventRequestID !== state.eventRequestID) return;
-    state.eventPages = events.pages || 0;
     renderEvents(events);
   }
 
@@ -856,7 +1125,7 @@
   }
 
   function renderKPIs(kpi, trend) {
-    const rangeLabels = { '24h': '24 小时', '7d': '7 天', '30d': '30 天', all: '全部' };
+    const rangeLabels = { '24h': '24 小时', '7d': '7 天', '30d': '30 天', all: '全部', custom: '自定义' };
     const rangeLabel = rangeLabels[kpi.range_label] || kpi.range_label || rangeLabels[state.range];
     const host = $('#overview-kpis');
     if (!host) return;
@@ -1251,16 +1520,31 @@
   function renderRuntime(runtime) {
     const storage = runtime.storage || {};
     const queueCapacity = runtime.queue_capacity || 256;
+    const dropped = Number(runtime.dropped || 0);
+    const writeDropped = Number(runtime.write_dropped || 0);
+    const writeUncertain = Number(runtime.write_uncertain || 0);
     const items = [
       ['队列', `${formatInt(runtime.queue_depth || 0)} / ${formatInt(queueCapacity)}`, '#7738ee'],
       ['已接收', formatInt(runtime.accepted), '#326ff5'],
       ['已写入', formatInt(runtime.written), '#20b95a'],
-      ['已丢弃', formatInt(runtime.dropped), '#e44e3f'],
+      ['已丢弃', formatInt(dropped), '#e44e3f', dropped > 0],
       ['最近批写', `${formatNumber(runtime.last_batch_ms, 2)} ms`, '#dda918'],
     ];
-    $('#runtime-strip').innerHTML = items.map(([label, value, color]) => `<div class="runtime-item"><span><i class="runtime-item-dot" style="background:${color}"></i>${label}</span><strong>${value}</strong></div>`).join('');
-    $('#runtime-strip').setAttribute('aria-label', `队列 ${formatInt(runtime.queue_depth || 0)} / ${formatInt(queueCapacity)}，已接收 ${formatInt(runtime.accepted)}，已写入 ${formatInt(runtime.written)}，已丢弃 ${formatInt(runtime.dropped)}`);
-    if (storage.last_error) toast(storage.last_error, true);
+    const error = storage.last_error || '';
+    if (writeDropped > 0) items.push(['写入丢失', formatInt(writeDropped), '#e44e3f', true]);
+    if (writeUncertain > 0) items.push(['写入不确定', formatInt(writeUncertain), '#e44e3f', true]);
+    if (error) {
+      items.push(['存储异常', error, '#e44e3f', true]);
+    }
+    const strip = $('#runtime-strip');
+    const hasWarning = Boolean(error) || dropped > 0 || writeDropped > 0 || writeUncertain > 0;
+    strip.classList.toggle('has-runtime-warning', hasWarning);
+    strip.innerHTML = items.map(([label, value, color, warning]) => `<div class="runtime-item${warning ? ' is-warning' : ''}"><span><i class="runtime-item-dot" style="background:${color}"></i>${label}</span><strong>${esc(value)}</strong></div>`).join('');
+    strip.setAttribute('aria-label', `队列 ${formatInt(runtime.queue_depth || 0)} / ${formatInt(queueCapacity)}，已接收 ${formatInt(runtime.accepted)}，已写入 ${formatInt(runtime.written)}，已丢弃 ${formatInt(dropped)}，写入丢失 ${formatInt(writeDropped)}，写入结果不确定 ${formatInt(writeUncertain)}${error ? `，存储异常 ${error}` : ''}`);
+    if (error && !state.reportedStorageErrors.has(error)) {
+      state.reportedStorageErrors.add(error);
+      toast(error, true);
+    }
   }
 
   async function loadAnalysis(force) {
@@ -2006,7 +2290,7 @@
     $('#detail-content').innerHTML = '<div class="skeleton" style="height:200px"></div>';
     $('#detail-close').focus();
     try {
-      const data = await api(`/upstream?range=${encodeURIComponent(state.range)}&key=${encodeURIComponent(key)}`, { signal: controller.signal });
+      const data = await api(`/upstream?${new URLSearchParams({ ...activeRangeParams(), key })}`, { signal: controller.signal });
       if (requestID !== state.drawerRequestID || controller.signal.aborted) return;
       const displayName = data.name || key;
       $('#detail-title').textContent = displayName;
@@ -2078,8 +2362,8 @@
         ? events.map((event, idx) => {
             const isErr = Boolean(event.failed);
             const errText = isErr ? formatErrorMessage(event.failure, event.status_code) : '';
-            const ttftStr = Number(event.first_token_ms || 0) > 0 ? formatDuration(event.first_token_ms) : '--';
-            const tpsStr = formatTPS(event.output_tokens, event.latency_ms, event.first_token_ms);
+            const ttftStr = Number(event.ttft_ms || 0) > 0 ? formatDuration(event.ttft_ms) : '--';
+            const tpsStr = formatTPS(event.output_tokens, event.latency_ms, event.ttft_ms);
             const costStr = formatMoney(event.cost_usd || 0);
             const totalTokStr = formatInt(event.total_tokens || 0);
             return `
@@ -2218,11 +2502,9 @@
 
   function drilldownUpstream(key, name) {
     closeDrawer(false);
-    const filterUpstream = $('#filter-upstream');
-    if (filterUpstream) filterUpstream.value = key;
-    const qInput = $('#event-filters input[name="q"]');
-    if (qInput) qInput.value = name || key;
-    state.eventFilters = { ...state.eventFilters, upstream: key };
+    state.healthFilter = null;
+    $$('.health-cell', $('#health-grid')).forEach((cell) => cell.classList.remove('is-selected'));
+    setEventFilterForm({ upstream: key });
     state.eventPage = 1;
     const banner = $('#drilldown-banner');
     const bannerText = $('#drilldown-text');
@@ -2238,6 +2520,7 @@
       $('#page-title').textContent = pageMeta.overview[0];
       $('#page-subtitle').textContent = pageMeta.overview[1];
       $('#range-control').hidden = false;
+      renderRangeSummary();
       loadActivePage(false);
     } else {
       loadEvents(true);
@@ -2293,7 +2576,7 @@
           <div class="kv-item"><span class="kv-label">调用时间</span><strong class="kv-value">${esc(formatDateTime(event.timestamp_ms))}</strong></div>
           <div class="kv-item"><span class="kv-label">模型</span><strong class="kv-value">${esc(event.model || '--')}</strong></div>
           <div class="kv-item"><span class="kv-label">渠道 / 上游</span><strong class="kv-value">${esc(event.upstream_label || '--')}</strong></div>
-          <div class="kv-item"><span class="kv-label">客户端标识</span><strong class="kv-value">${esc(event.api_key_hash || '--')}</strong></div>
+          <div class="kv-item"><span class="kv-label">客户端标识</span><strong class="kv-value">${esc(event.api_key || '--')}</strong></div>
           <div class="kv-item"><span class="kv-label">推理强度</span><strong class="kv-value">${esc(event.reasoning_effort || '--')}</strong></div>
           <div class="kv-item"><span class="kv-label">生成速率 (TPS)</span><strong class="kv-value">${tps}</strong></div>
         </div>
@@ -2400,7 +2683,6 @@
     try {
       const data = await cached(`/events?${params}`, force, controller.signal);
       if (requestID !== state.eventRequestID || controller.signal.aborted) return;
-      state.eventPages = data.pages || 0;
       renderEvents(data);
     } catch (error) {
       if (error.name !== 'AbortError' && error.name !== 'AuthRequired') toast(error.message || '请求明细加载失败', true);
@@ -2531,7 +2813,7 @@
   function eventParams() {
     const base = state.healthFilter
       ? { range: 'custom', from: String(state.healthFilter.from), to: String(state.healthFilter.to) }
-      : { range: state.range };
+      : activeRangeParams();
     return new URLSearchParams({ ...base, page: String(state.eventPage), page_size: '25', ...state.eventFilters });
   }
 
@@ -2618,9 +2900,11 @@
   function renderEvents(data) {
     const body = $('#event-table');
     $('#event-count').textContent = `${formatInt(data.total)} 条记录`;
-    $('#page-label').textContent = data.pages ? `第 ${data.page} / ${data.pages} 页` : '第 0 页';
+    const accessiblePages = data.accessible_pages ?? data.pages ?? 0;
+    state.eventPages = accessiblePages;
+    $('#page-label').textContent = data.pages ? `第 ${data.page} / ${data.pages} 页${accessiblePages < data.pages ? `（可访问前 ${accessiblePages} 页，请缩小时间范围）` : ''}` : '第 0 页';
     $('#page-prev').disabled = data.page <= 1;
-    $('#page-next').disabled = !data.pages || data.page >= data.pages;
+    $('#page-next').disabled = !accessiblePages || data.page >= accessiblePages;
     state.currentEvents = data.events || [];
     if (!(data.events || []).length) return emptyRow(body, 9);
     body.innerHTML = data.events.map((event, index) => {
@@ -2674,13 +2958,18 @@
     $('#storage-path').textContent = storage.path || '内存数据库';
     $('#storage-settings [name="retention_days"]').value = config.retention_days || 30;
     $('#storage-settings [name="export_max_records"]').value = config.export_max_records || 50000;
+    const hasMetrics = storage.metrics_available === true;
+    const sampledAt = Date.parse(storage.sampled_at);
     const metrics = [
-      ['数据库大小', formatBytes(storage.database_bytes)],
-      ['总事件记录', formatInt(storage.event_count)],
-      ['分钟 Rollup', formatInt(storage.rollup_count)],
+      ['数据库大小（含 WAL）', hasMetrics ? formatBytes(storage.database_bytes) : '未知'],
+      ['总事件记录', hasMetrics ? formatInt(storage.event_count) : '未知'],
+      ['分钟 Rollup', hasMetrics ? formatInt(storage.rollup_count) : '未知'],
       ['最近批写耗时', `${formatNumber(runtime.last_batch_ms, 2)} ms`],
-      ['写入失败数', formatInt(runtime.write_failures)],
-      ['队列丢弃数', formatInt(runtime.dropped)],
+      ['写入失败尝试', formatInt(runtime.write_failures)],
+      ['写入丢失事件', formatInt(runtime.write_dropped)],
+      ['写入结果不确定', formatInt(runtime.write_uncertain)],
+      ['丢弃事件总数', formatInt(runtime.dropped)],
+      ['状态采集', Number.isFinite(sampledAt) ? `${esc(formatDateTime(sampledAt))}${storage.metrics_stale ? '（采集失败，显示上次快照）' : ''}` : '尚未采集成功'],
     ];
     $('#storage-metrics').innerHTML = metrics.map(([label, value]) => metric(label, value)).join('');
   }
@@ -2937,7 +3226,6 @@
     if (!file) return;
     try {
       const text = await file.text();
-      JSON.parse(text);
       const result = await api('/restore', { method: 'POST', body: text });
       clearFrontendCache();
       toast(`已恢复 ${formatInt(result.events)} 条事件`);

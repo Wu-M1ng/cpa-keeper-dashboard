@@ -1,12 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"html"
 	"net/url"
 	"strings"
 	"sync"
@@ -17,16 +18,28 @@ import (
 )
 
 var (
-	runtimeMu     sync.RWMutex
-	activeRuntime *pluginRuntime
+	runtimeMu           sync.RWMutex
+	runtimeTransitionMu sync.Mutex
+	activeRuntime       *pluginRuntime
 )
+
+type writerQueueItem struct {
+	event   usageEvent
+	barrier *writerBarrier
+	counted bool
+}
+
+type writerBarrier struct {
+	ready  chan struct{}
+	resume chan struct{}
+}
 
 type pluginRuntime struct {
 	configMu   sync.RWMutex
 	settingsMu sync.Mutex
 	config     runtimeConfig
 	store      *eventStore
-	queue      chan usageEvent
+	queue      chan writerQueueItem
 	readCache  *managementReadCache
 	started    time.Time
 
@@ -34,15 +47,20 @@ type pluginRuntime struct {
 	closed  bool
 	done    chan struct{}
 
-	accepted      atomic.Uint64
-	dropped       atomic.Uint64
-	written       atomic.Uint64
-	writeFailures atomic.Uint64
-	lastBatchSize atomic.Int64
-	lastBatchNS   atomic.Int64
+	accepted       atomic.Uint64
+	queuedEvents   atomic.Int64
+	dropped        atomic.Uint64
+	written        atomic.Uint64
+	writeFailures  atomic.Uint64
+	writeDropped   atomic.Uint64
+	writeUncertain atomic.Uint64
+	lastBatchSize  atomic.Int64
+	lastBatchNS    atomic.Int64
 }
 
 func configureRuntime(cfg runtimeConfig) error {
+	runtimeTransitionMu.Lock()
+	defer runtimeTransitionMu.Unlock()
 	next, err := newPluginRuntime(cfg)
 	if err != nil {
 		return err
@@ -65,9 +83,10 @@ func newPluginRuntime(cfg runtimeConfig) (*pluginRuntime, error) {
 	cfg.RetentionDays = store.loadIntSetting("retention_days", cfg.RetentionDays)
 	cfg.ExportMax = store.loadIntSetting("export_max_records", cfg.ExportMax)
 	r := &pluginRuntime{
-		config:    cfg,
-		store:     store,
-		queue:     make(chan usageEvent, cfg.QueueSize),
+		config: cfg,
+		store:  store,
+		// Reserve one slot for a restore barrier even when the event queue is full.
+		queue:     make(chan writerQueueItem, cfg.QueueSize+1),
 		readCache: newManagementReadCache(),
 		started:   time.Now().UTC(),
 		done:      make(chan struct{}),
@@ -84,6 +103,8 @@ func currentRuntime() *pluginRuntime {
 }
 
 func shutdownRuntime() {
+	runtimeTransitionMu.Lock()
+	defer runtimeTransitionMu.Unlock()
 	runtimeMu.Lock()
 	r := activeRuntime
 	activeRuntime = nil
@@ -97,38 +118,54 @@ func handleUsage(raw []byte) []byte {
 	var record usageRecord
 	if err := json.Unmarshal(raw, &record); err != nil {
 		// Usage observation is fail-open: malformed telemetry must not affect CPA.
-		if r := currentRuntime(); r != nil {
+		runtimeMu.RLock()
+		if r := activeRuntime; r != nil {
 			r.dropped.Add(1)
 		}
+		runtimeMu.RUnlock()
 		return okEnvelope(struct{}{})
 	}
-	if r := currentRuntime(); r != nil {
+	// Keep the selected runtime alive until the event is admitted or dropped.
+	runtimeMu.RLock()
+	if r := activeRuntime; r != nil {
 		r.enqueue(record)
 	}
+	runtimeMu.RUnlock()
 	return okEnvelope(struct{}{})
 }
 
 func (r *pluginRuntime) enqueue(record usageRecord) bool {
-	if len(r.queue) >= cap(r.queue) {
-		r.dropped.Add(1)
-		return false
-	}
-	r.configMu.RLock()
-	salt := r.config.APIKeyHashSalt
-	r.configMu.RUnlock()
-	event := compactUsageRecord(record, salt)
-
 	r.queueMu.RLock()
 	defer r.queueMu.RUnlock()
 	if r.closed {
 		r.dropped.Add(1)
 		return false
 	}
+	r.configMu.RLock()
+	salt := r.config.APIKeyHashSalt
+	queueLimit := r.config.QueueSize
+	r.configMu.RUnlock()
+	if queueLimit < 1 || queueLimit > cap(r.queue) {
+		queueLimit = cap(r.queue)
+	}
+	for {
+		queued := r.queuedEvents.Load()
+		if queued >= int64(queueLimit) {
+			r.dropped.Add(1)
+			return false
+		}
+		if r.queuedEvents.CompareAndSwap(queued, queued+1) {
+			break
+		}
+	}
+	event := compactUsageRecord(record, salt)
+
 	select {
-	case r.queue <- event:
+	case r.queue <- writerQueueItem{event: event, counted: true}:
 		r.accepted.Add(1)
 		return true
 	default:
+		r.queuedEvents.Add(-1)
 		r.dropped.Add(1)
 		return false
 	}
@@ -154,11 +191,7 @@ func (r *pluginRuntime) runWriter() {
 		}
 		started := time.Now()
 		count := len(batch)
-		if err := r.store.writeBatch(batch); err != nil {
-			r.writeFailures.Add(1)
-		} else {
-			r.written.Add(uint64(count))
-		}
+		r.writeBatchWithRetry(batch)
 		r.lastBatchSize.Store(int64(count))
 		r.lastBatchNS.Store(time.Since(started).Nanoseconds())
 		clear(batch[:cap(batch)])
@@ -167,12 +200,21 @@ func (r *pluginRuntime) runWriter() {
 
 	for {
 		select {
-		case event, ok := <-r.queue:
+		case item, ok := <-r.queue:
 			if !ok {
 				flush()
 				return
 			}
-			batch = append(batch, event)
+			if item.counted {
+				r.queuedEvents.Add(-1)
+			}
+			if item.barrier != nil {
+				flush()
+				close(item.barrier.ready)
+				<-item.barrier.resume
+				continue
+			}
+			batch = append(batch, item.event)
 			if len(batch) >= batchSize {
 				flush()
 			}
@@ -185,6 +227,116 @@ func (r *pluginRuntime) runWriter() {
 			}
 		}
 	}
+}
+
+func (r *pluginRuntime) pauseWriter(ctx context.Context) (func(), error) {
+	barrier := &writerBarrier{ready: make(chan struct{}), resume: make(chan struct{})}
+	r.queueMu.Lock()
+	if r.closed {
+		r.queueMu.Unlock()
+		return nil, errRuntimeUnavailable
+	}
+	select {
+	case r.queue <- writerQueueItem{barrier: barrier}:
+		r.queueMu.Unlock()
+	default:
+		r.queueMu.Unlock()
+		return nil, errors.New("writer queue cannot accept restore barrier")
+	}
+	select {
+	case <-barrier.ready:
+		return sync.OnceFunc(func() { close(barrier.resume) }), nil
+	case <-ctx.Done():
+		close(barrier.resume)
+		return nil, ctx.Err()
+	case <-r.done:
+		close(barrier.resume)
+		return nil, errRuntimeUnavailable
+	}
+}
+
+func (r *pluginRuntime) restoreBackup(ctx context.Context, payload backupPayload) (importResult, error) {
+	runtimeTransitionMu.Lock()
+	defer runtimeTransitionMu.Unlock()
+	if currentRuntime() != r {
+		return importResult{}, errRuntimeUnavailable
+	}
+	if r.done != nil {
+		resume, err := r.pauseWriter(ctx)
+		if err != nil {
+			return importResult{}, err
+		}
+		defer resume()
+	}
+	r.settingsMu.Lock()
+	defer r.settingsMu.Unlock()
+	result, err := importBackup(ctx, r.store, payload)
+	if err == nil {
+		r.readCache.clear()
+	}
+	return result, err
+}
+
+func (r *pluginRuntime) exportBackup(ctx context.Context, maxRecords int) (backupPayload, error) {
+	unlock, err := r.prepareBackupExport(ctx)
+	if err != nil {
+		return backupPayload{}, err
+	}
+	defer unlock()
+	return exportBackup(ctx, r.store, maxRecords)
+}
+
+func (r *pluginRuntime) exportBackupJSON(ctx context.Context, maxRecords int) ([]byte, error) {
+	unlock, err := r.prepareBackupExport(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	return exportBackupJSON(ctx, r.store, maxRecords)
+}
+
+func (r *pluginRuntime) prepareBackupExport(ctx context.Context) (func(), error) {
+	runtimeTransitionMu.Lock()
+	if currentRuntime() != r {
+		runtimeTransitionMu.Unlock()
+		return nil, errRuntimeUnavailable
+	}
+	if r.done != nil {
+		resume, err := r.pauseWriter(ctx)
+		if err != nil {
+			runtimeTransitionMu.Unlock()
+			return nil, err
+		}
+		resume()
+	}
+	return runtimeTransitionMu.Unlock, nil
+}
+
+// The batch remains owned by the writer until it succeeds or the bounded
+// retry budget is exhausted. Enqueue remains non-blocking during backoff.
+func (r *pluginRuntime) writeBatchWithRetry(batch []usageEvent) {
+	const maxAttempts = 3
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		err := r.store.writeBatch(batch)
+		if err == nil {
+			r.written.Add(uint64(len(batch)))
+			return
+		}
+		r.writeFailures.Add(1)
+		var uncertain *uncertainBatchWriteError
+		if errors.As(err, &uncertain) {
+			// A failed COMMIT may already have persisted the batch. Do not
+			// replay it or label it as a confirmed loss.
+			r.writeUncertain.Add(uint64(len(batch)))
+			return
+		}
+		if attempt == maxAttempts-1 {
+			break
+		}
+		time.Sleep((250 * time.Millisecond) << attempt)
+	}
+	r.writeDropped.Add(uint64(len(batch)))
+	r.dropped.Add(uint64(len(batch)))
 }
 
 func (r *pluginRuntime) pruneExpired(now time.Time) error {
@@ -224,20 +376,26 @@ func (r *pluginRuntime) runtimeStatus(storage storageStatus) runtimeStatus {
 	r.configMu.RLock()
 	cfg := r.config
 	r.configMu.RUnlock()
+	queueCapacity := cap(r.queue)
+	if cfg.QueueSize > 0 && cfg.QueueSize < queueCapacity {
+		queueCapacity = cfg.QueueSize
+	}
 	return runtimeStatus{
-		Accepted:      r.accepted.Load(),
-		Dropped:       r.dropped.Load(),
-		Written:       r.written.Load(),
-		WriteFailures: r.writeFailures.Load(),
-		QueueDepth:    len(r.queue),
-		QueueCapacity: cap(r.queue),
-		LastBatchSize: r.lastBatchSize.Load(),
-		LastBatchMS:   float64(r.lastBatchNS.Load()) / float64(time.Millisecond),
-		StartedAt:     r.started.Format(time.RFC3339),
-		Storage:       storage,
-		RetentionDays: cfg.RetentionDays,
-		BatchSize:     cfg.BatchSize,
-		FlushInterval: cfg.FlushIntervalMS,
+		Accepted:       r.accepted.Load(),
+		Dropped:        r.dropped.Load(),
+		Written:        r.written.Load(),
+		WriteFailures:  r.writeFailures.Load(),
+		WriteDropped:   r.writeDropped.Load(),
+		WriteUncertain: r.writeUncertain.Load(),
+		QueueDepth:     len(r.queue),
+		QueueCapacity:  queueCapacity,
+		LastBatchSize:  r.lastBatchSize.Load(),
+		LastBatchMS:    float64(r.lastBatchNS.Load()) / float64(time.Millisecond),
+		StartedAt:      r.started.Format(time.RFC3339),
+		Storage:        storage,
+		RetentionDays:  cfg.RetentionDays,
+		BatchSize:      cfg.BatchSize,
+		FlushInterval:  cfg.FlushIntervalMS,
 	}
 }
 
@@ -372,43 +530,6 @@ func normalizeEventForStorage(event *usageEvent, salt string) {
 	event.Failure = sanitizeFailure(event.Failure)
 }
 
-func sanitizeEndpoint(value string) string {
-	oversized := len(value) > 256
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	parsed, err := url.Parse(value)
-	if err != nil {
-		res := cleanControlChars(value, 256)
-		if oversized {
-			return strings.Clone(res)
-		}
-		return res
-	}
-	var res string
-	if parsed.Host != "" {
-		scheme := parsed.Scheme
-		if scheme == "" {
-			scheme = "https"
-		}
-		res = scheme + "://" + parsed.Host + parsed.Path
-	} else {
-		res = parsed.Path
-		if res == "" && parsed.Opaque != "" {
-			res = parsed.Opaque
-		}
-		if res == "" {
-			res = value
-		}
-	}
-	res = cleanControlChars(res, 256)
-	if oversized {
-		return strings.Clone(res)
-	}
-	return res
-}
-
 func cleanControlChars(s string, maxLen int) string {
 	cleaned := strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
@@ -469,7 +590,7 @@ func providerCredentialLabelFromStored(provider, credential, storedLabel, fallba
 		if prefix := cleanDimension(provider, "unknown") + " / "; strings.HasPrefix(storedCredential, prefix) {
 			storedCredential = strings.TrimSpace(strings.TrimPrefix(storedCredential, prefix))
 		}
-		if strings.Contains(storedCredential, "***") {
+		if isMaskedProviderCredential(storedCredential) {
 			return cleanDimension(provider, "unknown") + " / " + storedCredential
 		}
 		credential = storedCredential
@@ -516,27 +637,6 @@ func cleanDimension(value, fallback string) string {
 	}
 	if len(value) > 160 {
 		value = value[:160]
-	}
-	cleaned := strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return -1
-		}
-		return r
-	}, value)
-	if oversized {
-		return strings.Clone(cleaned)
-	}
-	return cleaned
-}
-
-func sanitizeFailure(value string) string {
-	oversized := len(value) > 512
-	value = html.UnescapeString(strings.TrimSpace(value))
-	if len(value) > 512 {
-		value = value[:512]
-	}
-	for !utf8.ValidString(value) {
-		value = value[:len(value)-1]
 	}
 	cleaned := strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {

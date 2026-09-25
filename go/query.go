@@ -139,12 +139,13 @@ type eventFilter struct {
 }
 
 type eventsPage struct {
-	Events      []usageEvent `json:"events"`
-	Total       int64        `json:"total"`
-	Page        int          `json:"page"`
-	PageSize    int          `json:"page_size"`
-	Pages       int          `json:"pages"`
-	GeneratedAt string       `json:"generated_at"`
+	Events          []usageEvent `json:"events"`
+	Total           int64        `json:"total"`
+	Page            int          `json:"page"`
+	PageSize        int          `json:"page_size"`
+	Pages           int          `json:"pages"`
+	AccessiblePages int          `json:"accessible_pages"`
+	GeneratedAt     string       `json:"generated_at"`
 }
 
 type aggregateRow struct {
@@ -1169,8 +1170,36 @@ const eventColumns = `id, timestamp_ms, provider, executor_type, model, alias, e
 	ttft_ms, failed, status_code, failure, input_tokens, output_tokens,
 	reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens`
 
+func queryEventDays(ctx context.Context, store *eventStore) ([]string, error) {
+	rows, err := store.db.QueryContext(ctx, `WITH RECURSIVE days(first_ms) AS (
+		SELECT MIN(timestamp_ms) FROM usage_events
+		UNION ALL
+		SELECT (SELECT MIN(timestamp_ms) FROM usage_events
+			WHERE timestamp_ms >= ((days.first_ms + 28800000) / 86400000 + 1) * 86400000 - 28800000)
+		FROM days WHERE first_ms IS NOT NULL
+	)
+	SELECT date(first_ms / 1000, 'unixepoch', '+8 hours') FROM days WHERE first_ms IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	days := []string{}
+	for rows.Next() {
+		var day string
+		if err := rows.Scan(&day); err != nil {
+			return nil, err
+		}
+		days = append(days, day)
+	}
+	return days, rows.Err()
+}
+
 func queryEvents(ctx context.Context, store *eventStore, filter eventFilter) (eventsPage, error) {
 	normalizeEventFilter(&filter)
+	offset, err := eventPageOffset(filter)
+	if err != nil {
+		return eventsPage{}, err
+	}
 	priceMap, err := loadPriceMap(ctx, store)
 	if err != nil {
 		return eventsPage{}, err
@@ -1188,7 +1217,16 @@ func queryEvents(ctx context.Context, store *eventStore, filter eventFilter) (ev
 	if err != nil {
 		return eventsPage{}, err
 	}
-	queryArgs := append(append([]any{}, args...), filter.PageSize, (filter.Page-1)*filter.PageSize)
+	pages := 0
+	if total > 0 {
+		pages = int((total-1)/int64(filter.PageSize) + 1)
+	}
+	accessiblePages := minInt(pages, minInt(maxEventPage, maxEventOffset/filter.PageSize+1))
+	result := eventsPage{Events: []usageEvent{}, Total: total, Page: filter.Page, PageSize: filter.PageSize, Pages: pages, AccessiblePages: accessiblePages, GeneratedAt: time.Now().UTC().Format(time.RFC3339)}
+	if offset >= total {
+		return result, nil
+	}
+	queryArgs := append(append([]any{}, args...), filter.PageSize, offset)
 	rows, err := store.db.QueryContext(ctx, "SELECT "+eventColumns+" FROM usage_events "+where+" ORDER BY timestamp_ms DESC, id DESC LIMIT ? OFFSET ?", queryArgs...)
 	if err != nil {
 		return eventsPage{}, err
@@ -1223,11 +1261,8 @@ func queryEvents(ctx context.Context, store *eventStore, filter eventFilter) (ev
 		event.ReasoningCost, event.CostUSD = costs.Reasoning, costs.total()
 		events = append(events, event)
 	}
-	pages := 0
-	if total > 0 {
-		pages = int((total + int64(filter.PageSize) - 1) / int64(filter.PageSize))
-	}
-	return eventsPage{Events: events, Total: total, Page: filter.Page, PageSize: filter.PageSize, Pages: pages, GeneratedAt: time.Now().UTC().Format(time.RFC3339)}, rows.Err()
+	result.Events = events
+	return result, rows.Err()
 }
 
 func canCountEventsFromRollups(filter eventFilter) bool {
@@ -1334,7 +1369,7 @@ func maskedProviderCredentialDisplay(provider, label, fallbackKey string) string
 			provider = parts[0]
 		}
 		credential := strings.TrimSpace(parts[len(parts)-1])
-		if strings.Contains(credential, "***") {
+		if isMaskedProviderCredential(credential) {
 			return cleanDimension(provider, "unknown") + " / " + credential
 		}
 		return providerCredentialLabel(provider, credential, fallbackKey)
@@ -1351,6 +1386,7 @@ func publicIdentifier(prefix, value string) string {
 }
 
 func redactEventForManagement(event *usageEvent) {
+	event.Endpoint = sanitizeEndpoint(event.Endpoint)
 	event.APIKeyMask = publicIdentifier("key", event.APIKeyHash)
 	event.APIKeyHash = ""
 	event.AuthID = ""
@@ -1393,6 +1429,20 @@ func normalizeEventFilter(filter *eventFilter) {
 	if len(filter.Search) > 120 {
 		filter.Search = filter.Search[:120]
 	}
+}
+
+const (
+	maxEventPage   = 40001
+	maxEventOffset = 1_000_000
+)
+
+func eventPageOffset(filter eventFilter) (int64, error) {
+	// Check before multiplying so this is safe on 32-bit hosts as well.
+	if filter.Page < 1 || filter.PageSize < 1 || filter.Page > maxEventPage ||
+		filter.Page-1 > maxEventOffset/filter.PageSize {
+		return 0, fmt.Errorf("page must be between 1 and %d and offset must not exceed %d; narrow the time range", maxEventPage, maxEventOffset)
+	}
+	return int64(filter.Page-1) * int64(filter.PageSize), nil
 }
 
 func eventWhere(ctx context.Context, store *eventStore, filter eventFilter) (string, []any, error) {

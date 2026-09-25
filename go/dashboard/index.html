@@ -68,16 +68,38 @@
         <div class="topbar-heading"><span class="topbar-kicker">KEEPER / USAGE</span><h1 id="page-title">总览</h1><p id="page-subtitle">运行状态与用量脉搏</p></div>
         <div class="topbar-actions">
           <div class="segmented" id="range-control" aria-label="时间范围">
-            <button class="is-active" data-range="24h">24 小时</button><button data-range="7d">7 天</button><button data-range="30d">30 天</button><button data-range="all">全部</button>
+            <button type="button" class="is-active" data-range="24h">24 小时</button><button type="button" data-range="7d">7 天</button><button type="button" data-range="30d">30 天</button><button type="button" data-range="all">全部</button><button type="button" data-range="custom" aria-controls="custom-range-form" aria-expanded="false">自定义</button>
           </div>
+          <button id="custom-range-summary" class="range-summary-button" type="button" aria-controls="custom-range-form" aria-expanded="false" title="点击修改自定义时间范围" hidden>
+            <span class="range-summary-label">当前自定义范围</span><strong id="custom-range-summary-value"></strong>
+          </button>
           <span id="freshness-state" class="topbar-freshness" aria-live="polite">等待数据</span>
           <button id="refresh-button" class="icon-button" title="刷新" aria-label="刷新"><svg><use href="#i-refresh"/></svg></button>
+          <form id="custom-range-form" class="custom-range-form" role="dialog" aria-modal="false" aria-label="自定义时间范围" hidden>
+            <div class="range-selection">
+              <label><span>开始日期</span><button id="custom-range-from" class="range-date-display" type="button" aria-label="选择开始日期">选择日期</button></label>
+              <span class="range-separator" aria-hidden="true">~</span>
+              <label><span>结束日期</span><button id="custom-range-to" class="range-date-display" type="button" aria-label="选择结束日期">选择日期</button></label>
+            </div>
+            <div id="range-calendars" class="range-calendars"></div>
+            <div class="range-picker-footer">
+              <label><span>开始时刻</span><input id="custom-range-from-time" type="time" step="1" value="00:00:00" required></label>
+              <label><span>结束时刻</span><input id="custom-range-to-time" type="time" step="1" value="23:59:59" required></label>
+              <span class="range-timezone">中国标准时间</span>
+              <div class="range-picker-actions">
+                <button class="secondary-button" id="custom-range-cancel" type="button">取消</button>
+                <button class="primary-button" id="custom-range-apply" type="submit" disabled>应用</button>
+              </div>
+            </div>
+            <span id="custom-range-error" class="custom-range-error" role="alert" hidden></span>
+          </form>
         </div>
       </header>
 
       <main id="main-content">
         <section class="page is-active" data-page="overview" data-region="overview-page">
           <div class="kpi-section" id="overview-kpis" data-region="kpi-band"></div>
+          <div class="runtime-strip" id="runtime-strip" data-region="runtime" role="group" aria-label="采集与存储运行状态"></div>
           <div class="overview-grid" data-region="operational-pulse">
             <section class="panel trend-panel" data-region="trend">
               <div class="panel-head">
@@ -116,7 +138,6 @@
               <div class="table-wrap"><table class="model-table"><caption class="sr-only">模型统计</caption><thead><tr><th scope="col">模型</th><th scope="col">请求</th><th scope="col">成功率</th><th scope="col">缓存命中率</th><th scope="col">Token</th><th scope="col">平均延迟</th><th scope="col">费用</th></tr></thead><tbody id="model-table"></tbody></table></div>
             </section>
           </div>
-          <div class="runtime-strip" id="runtime-strip" data-region="runtime"></div>
           <div class="overview-section event-section" data-region="events">
             <form class="filter-bar" id="event-filters" aria-label="请求明细筛选">
               <input type="hidden" name="upstream" id="filter-upstream">
@@ -128,6 +149,7 @@
               <button class="secondary-button" type="reset" id="event-reset">清除筛选</button>
               <button class="secondary-button" id="event-export" type="button"><svg><use href="#i-download"/></svg>导出 CSV</button>
             </form>
+            <div id="event-filter-chips" class="active-filter-list" role="group" aria-label="已应用的明细筛选" hidden></div>
             <div id="drilldown-banner" class="drilldown-banner" hidden>
               <div class="drilldown-banner-left">
                 <span class="drilldown-icon"><svg><use href="#i-activity"/></svg></span>

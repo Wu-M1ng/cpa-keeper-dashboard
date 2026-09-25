@@ -354,7 +354,45 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .topbar-kicker { display: block; color: var(--blue); font-size: 11.5px; font-weight: 780; letter-spacing: .08em; text-transform: uppercase; }
 .topbar h1 { margin: 6px 0 3px; font-size: 26px; line-height: 1.2; font-weight: 780; letter-spacing: -0.01em; }
 .topbar p { margin: 0; color: var(--muted); font-size: 13.5px; }
-.topbar-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.topbar-actions { position: relative; z-index: 60; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.range-summary-button { flex: 1 1 360px; min-width: 0; max-width: min(520px, 100%); min-height: 40px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; padding: 7px 11px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
+.range-summary-button[hidden] { display: none; }
+.range-summary-label { color: var(--muted); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.range-summary-button strong { min-width: 0; font-size: 12px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.range-summary-button:hover { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 4%, var(--surface)); }
+.range-summary-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.custom-range-form { position: absolute; z-index: 150; top: calc(100% + 8px); right: 0; width: min(680px, calc(100vw - 32px)); max-width: min(680px, calc(100vw - 32px)); display: grid; gap: 14px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-md); }
+.custom-range-form[hidden], .custom-range-error[hidden] { display: none; }
+.custom-range-form label { min-width: 0; display: grid; gap: 5px; color: var(--muted-strong); font-size: 12px; font-weight: 700; }
+.range-selection { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 10px; }
+.range-separator { padding-bottom: 11px; color: var(--muted); }
+.range-date-display, .custom-range-form input { width: 100%; min-width: 0; height: 38px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; text-align: left; }
+.range-date-display.is-editing { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 8%, var(--surface)); }
+.custom-range-form input:focus-visible, .range-date-display:focus-visible, .range-calendar-nav button:focus-visible, .range-calendar-day:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.range-calendars { min-width: 0; padding-top: 12px; border-top: 1px solid var(--line); }
+.range-calendar-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: var(--muted); font-size: 12px; }
+.range-calendar-nav button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
+.range-calendar-nav button svg { width: 16px; height: 16px; }
+.range-calendar-nav button:disabled { opacity: .35; cursor: not-allowed; }
+.range-calendar-months { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.range-calendar-month { min-width: 0; }
+.range-calendar-month h3 { margin: 0 0 10px; text-align: center; font-size: 13px; font-weight: 750; }
+.range-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: repeat(7, 34px); gap: 3px; }
+.range-calendar-weekday, .range-calendar-empty, .range-calendar-day { height: 34px; display: grid; place-items: center; font-size: 12px; }
+.range-calendar-weekday { color: var(--muted); }
+.range-calendar-day { width: 100%; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); font-weight: 650; }
+.range-calendar-day:not(:disabled):hover { background: var(--surface-inset); }
+.range-calendar-day.is-between { background: color-mix(in srgb, var(--blue) 10%, var(--surface)); }
+.range-calendar-day.is-selected { background: var(--blue); color: #fff; }
+.range-calendar-day.is-selected:not(:disabled):hover { background: var(--blue); }
+.range-calendar-day:disabled { color: var(--muted); opacity: .35; cursor: not-allowed; }
+.range-calendar-status { margin: 24px 0; color: var(--muted); text-align: center; font-size: 13px; }
+.range-picker-footer { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.range-picker-footer label { flex: 0 1 150px; }
+.range-timezone { align-self: center; color: var(--muted); font-size: 12px; }
+.range-picker-actions { display: flex; gap: 8px; margin-left: auto; }
+.custom-range-form .primary-button, .custom-range-form .secondary-button { height: 38px; }
+.custom-range-error { color: var(--red); font-size: 12px; }
 .topbar-freshness { min-height: 34px; display: inline-flex; align-items: center; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-subtle); color: var(--muted); font-size: 12px; font-weight: 650; white-space: nowrap; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7); }
 .topbar-freshness.is-fresh { color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, var(--line)); }
 .topbar-freshness.is-stale { color: var(--yellow); border-color: color-mix(in srgb, var(--yellow) 35%, var(--line)); }
@@ -1254,6 +1292,9 @@ tbody tr:hover td {
 .runtime-item > span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .runtime-item strong { overflow: hidden; color: var(--text); font-size: 13px; font-weight: 720; text-overflow: ellipsis; white-space: nowrap; }
 .runtime-item-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; }
+.runtime-strip.has-runtime-warning { border-color: color-mix(in srgb, var(--red) 55%, var(--line)); background: color-mix(in srgb, var(--red) 18%, var(--line)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--red) 10%, transparent); }
+.runtime-item.is-warning { background: color-mix(in srgb, var(--red) 7%, var(--surface)); color: var(--red); }
+.runtime-item.is-warning strong { color: var(--red); }
 
 .table-wrap {
   width: 100%;
@@ -1524,6 +1565,14 @@ tbody tr:last-child td:last-child {
   background: var(--surface);
   box-shadow: inset 0 1px 0 #ffffff, var(--shadow-sm);
 }
+.active-filter-list { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -2px 0 14px; }
+.active-filter-list[hidden] { display: none; }
+.active-filter-chip { min-width: 0; max-width: 100%; display: inline-flex; align-items: center; gap: 6px; padding: 4px 5px 4px 10px; border: 1px solid color-mix(in srgb, var(--blue) 25%, var(--line)); border-radius: 999px; background: color-mix(in srgb, var(--blue) 6%, var(--surface)); color: var(--text); }
+.active-filter-chip-text { min-width: 0; font-size: 12px; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
+.active-filter-chip button { width: 25px; height: 25px; flex: 0 0 25px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted-strong); cursor: pointer; }
+.active-filter-chip button:hover { background: color-mix(in srgb, var(--red) 12%, var(--surface)); color: var(--red); }
+.active-filter-chip button:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.active-filter-chip button svg { width: 13px; height: 13px; }
 .filter-bar:focus-within {
   z-index: 50;
 }
@@ -3315,6 +3364,8 @@ dialog::backdrop { background: rgba(15, 20, 27, .44); backdrop-filter: blur(6px)
   .top-nav { width: calc(100% - 24px); }
   .topbar { min-height: 0; align-items: flex-start; flex-direction: column; padding-block: 24px 18px; }
   .topbar-actions { width: 100%; justify-content: flex-start; }
+  .custom-range-form { justify-content: flex-start; }
+  .custom-range-form { max-width: 680px; }
   .overview-grid, .interface-analytics-grid { grid-template-columns: 1fr; }
   .trend-panel, .health-panel { min-height: 0; }
   .health-grid { overflow-x: auto; padding-bottom: 4px; }
@@ -3495,6 +3546,8 @@ dialog::backdrop { background: rgba(15, 20, 27, .44); backdrop-filter: blur(6px)
 }
 
 @media (max-width: 560px) {
+  .topbar-actions .segmented { max-width: 100%; flex-wrap: wrap; }
+  .topbar-actions .segmented button { flex: 1 1 auto; padding-inline: 9px; }
   .top-nav {
     width: calc(100% - 16px) !important;
     bottom: max(10px, env(safe-area-inset-bottom, 10px)) !important;
@@ -3505,6 +3558,10 @@ dialog::backdrop { background: rgba(15, 20, 27, .44); backdrop-filter: blur(6px)
   .token-breakdown-grid { grid-template-columns: 1fr !important; }
   .runtime-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filter-bar { grid-template-columns: 1fr; }
+  .custom-range-form { width: 100%; max-height: min(760px, calc(100dvh - 170px)); overflow-y: auto; }
+  .range-calendar-months { grid-template-columns: 1fr; gap: 20px; }
+  .range-picker-footer label { flex: 1 1 130px; }
+  .range-timezone { flex-basis: 100%; }
   .filter-bar label:first-child, .filter-bar #event-export { grid-column: auto; }
   .filter-bar button { width: 100%; }
   .section-head { padding-inline: 0; }

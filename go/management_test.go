@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -13,7 +14,7 @@ func withTestRuntime(t *testing.T) (*pluginRuntime, time.Time) {
 	t.Helper()
 	store, now := seededQueryStore(t)
 	cfg := defaultConfig()
-	runtime := &pluginRuntime{config: cfg, store: store, queue: make(chan usageEvent, 8), readCache: newManagementReadCache(), started: now}
+	runtime := &pluginRuntime{config: cfg, store: store, queue: make(chan writerQueueItem, 8), readCache: newManagementReadCache(), started: now}
 	runtimeMu.Lock()
 	previous := activeRuntime
 	activeRuntime = runtime
@@ -109,6 +110,65 @@ func TestManagementExportAndRestoreValidation(t *testing.T) {
 		if after := runtime.store.status().EventCount; after != before {
 			t.Fatalf("rejected restore changed events: before=%d after=%d", before, after)
 		}
+	}
+}
+
+func TestManagementBackupRejectsExportAboveLimit(t *testing.T) {
+	runtime, _ := withTestRuntime(t)
+	runtime.configMu.Lock()
+	runtime.config.ExportMax = 2
+	runtime.configMu.Unlock()
+	request := managementRequest{Method: http.MethodGet, Path: managementPrefix + "/backup"}
+	response := handleManagement(request)
+	if response.StatusCode != http.StatusConflict || response.Headers.Get("Content-Disposition") != "" ||
+		!strings.Contains(string(response.Body), "backup_limit_exceeded") {
+		t.Fatalf("oversized backup was offered as a download: status=%d headers=%v body=%s", response.StatusCode, response.Headers, response.Body)
+	}
+	runtime.configMu.Lock()
+	runtime.config.ExportMax = 3
+	runtime.configMu.Unlock()
+	response = handleManagement(request)
+	if response.StatusCode != http.StatusOK || response.Headers.Get("Content-Disposition") == "" {
+		t.Fatalf("complete backup failed: status=%d body=%s", response.StatusCode, response.Body)
+	}
+	var backup backupPayload
+	if err := json.Unmarshal(response.Body, &backup); err != nil {
+		t.Fatal(err)
+	}
+	if backup.Truncated || len(backup.Events) != 3 {
+		t.Fatalf("backup is incomplete: events=%d truncated=%t", len(backup.Events), backup.Truncated)
+	}
+}
+
+func TestManagementCSVRejectsExportAboveLimit(t *testing.T) {
+	runtime, _ := withTestRuntime(t)
+	runtime.configMu.Lock()
+	runtime.config.ExportMax = 2
+	runtime.configMu.Unlock()
+	response := handleManagement(managementRequest{
+		Method: http.MethodGet,
+		Path:   managementPrefix + "/events/export",
+		Query:  url.Values{"range": {"all"}},
+	})
+	if response.StatusCode != http.StatusConflict || response.Headers.Get("Content-Disposition") != "" ||
+		!strings.Contains(string(response.Body), "csv_limit_exceeded") {
+		t.Fatalf("truncated CSV was offered as a download: status=%d headers=%v body=%s", response.StatusCode, response.Headers, response.Body)
+	}
+
+	runtime.configMu.Lock()
+	runtime.config.ExportMax = 3
+	runtime.configMu.Unlock()
+	response = handleManagement(managementRequest{
+		Method: http.MethodGet,
+		Path:   managementPrefix + "/events/export",
+		Query:  url.Values{"range": {"all"}},
+	})
+	if response.StatusCode != http.StatusOK || response.Headers.Get("Content-Disposition") == "" {
+		t.Fatalf("complete CSV export failed: status=%d body=%s", response.StatusCode, response.Body)
+	}
+	rows, err := csv.NewReader(strings.NewReader(strings.TrimPrefix(string(response.Body), "\xEF\xBB\xBF"))).ReadAll()
+	if err != nil || len(rows) != 4 {
+		t.Fatalf("complete CSV rows=%d err=%v", len(rows), err)
 	}
 }
 

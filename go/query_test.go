@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -297,6 +299,109 @@ func TestQuerySummaryReturnsEmptyFiveDayHealthGrid(t *testing.T) {
 		if point.Requests != 0 || point.Failures != 0 || point.SuccessRate != 0 {
 			t.Fatalf("empty health point contains activity: %+v", point)
 		}
+	}
+}
+
+func TestParseCustomRangeAndPresets(t *testing.T) {
+	now := time.Date(2026, 9, 25, 8, 30, 0, 0, time.UTC)
+	from := now.Add(-90 * time.Minute)
+	to := now.Add(-30 * time.Minute)
+	for _, tc := range []struct {
+		name  string
+		query url.Values
+	}{
+		{
+			name: "unix milliseconds",
+			query: url.Values{"range": {"custom"}, "from": {strconv.FormatInt(from.UnixMilli(), 10)},
+				"to": {strconv.FormatInt(to.UnixMilli(), 10)}},
+		},
+		{
+			name: "RFC3339 China offsets",
+			query: url.Values{"range": {"custom"}, "from": {from.In(time.FixedZone("CST", 8*60*60)).Format(time.RFC3339)},
+				"to": {to.In(time.FixedZone("CST", 8*60*60)).Format(time.RFC3339)}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rng, err := parseRange(tc.query, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rng.FromMS != from.UnixMilli() || rng.ToMS != to.UnixMilli() || rng.Label != "custom" {
+				t.Fatalf("custom range=%+v, want %d..%d", rng, from.UnixMilli(), to.UnixMilli())
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		name  string
+		query url.Values
+	}{
+		{name: "missing from", query: url.Values{"range": {"custom"}, "to": {strconv.FormatInt(to.UnixMilli(), 10)}}},
+		{name: "missing to", query: url.Values{"range": {"custom"}, "from": {strconv.FormatInt(from.UnixMilli(), 10)}}},
+		{name: "invalid timestamp", query: url.Values{"range": {"custom"}, "from": {"yesterday"}, "to": {strconv.FormatInt(to.UnixMilli(), 10)}}},
+		{name: "equal bounds", query: url.Values{"range": {"custom"}, "from": {strconv.FormatInt(from.UnixMilli(), 10)}, "to": {strconv.FormatInt(from.UnixMilli(), 10)}}},
+		{name: "reversed bounds", query: url.Values{"range": {"custom"}, "from": {strconv.FormatInt(to.UnixMilli(), 10)}, "to": {strconv.FormatInt(from.UnixMilli(), 10)}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseRange(tc.query, now); err == nil {
+				t.Fatal("invalid custom range was accepted")
+			}
+		})
+	}
+
+	preset, err := parseRange(url.Values{
+		"range": {"7d"}, "from": {strconv.FormatInt(from.UnixMilli(), 10)},
+		"to": {strconv.FormatInt(to.UnixMilli(), 10)},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preset.FromMS != now.AddDate(0, 0, -7).UnixMilli() || preset.ToMS != now.UnixMilli() || preset.Label != "7d" {
+		t.Fatalf("custom bounds changed the 7d preset: %+v", preset)
+	}
+}
+
+func TestCustomRangeFiltersEventsAtInclusiveMillisecondBounds(t *testing.T) {
+	store := openTestStore(t)
+	now := time.Date(2026, 9, 25, 8, 30, 0, 0, time.UTC)
+	from, to := now.Add(-2*time.Minute), now.Add(-time.Minute)
+	events := []usageEvent{
+		fixtureEvent(from.Add(-time.Millisecond), "before", false, 10, 1),
+		fixtureEvent(from, "at-from", false, 20, 2),
+		fixtureEvent(to, "at-to", false, 30, 3),
+		fixtureEvent(to.Add(time.Millisecond), "after", false, 40, 4),
+	}
+	if err := store.writeBatch(events); err != nil {
+		t.Fatal(err)
+	}
+	query := url.Values{
+		"range": {"custom"}, "from": {strconv.FormatInt(from.UnixMilli(), 10)},
+		"to": {strconv.FormatInt(to.UnixMilli(), 10)},
+	}
+	filter, err := parseEventFilter(query, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := queryEvents(t.Context(), store, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 2 || len(page.Events) != 2 || page.Events[0].Model != "at-to" || page.Events[1].Model != "at-from" {
+		t.Fatalf("custom event range included wrong boundaries: %+v", page)
+	}
+	summary, err := querySummary(t.Context(), store, query, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.KPI.Requests != page.Total {
+		t.Fatalf("custom range summary=%d events=%d", summary.KPI.Requests, page.Total)
+	}
+	analysis, err := queryAnalysis(t.Context(), store, query, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(analysis.Models) != 2 || analysis.Models[0].Requests != 1 || analysis.Models[1].Requests != 1 {
+		t.Fatalf("custom range analysis included wrong events: %+v", analysis.Models)
 	}
 }
 
@@ -778,6 +883,46 @@ func TestBackupRoundTrip(t *testing.T) {
 	}
 	if result.Events != 3 || target.status().EventCount != 3 {
 		t.Fatalf("restore failed: result=%+v status=%+v", result, target.status())
+	}
+}
+
+func TestStreamingBackupJSONRoundTrip(t *testing.T) {
+	source, _ := seededQueryStore(t)
+	raw, err := exportBackupJSON(t.Context(), source, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload backupPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("backup JSON is invalid: %v", err)
+	}
+	if payload.Version != 1 || payload.Events == nil || payload.Prices == nil || len(payload.Events) != 3 || len(payload.Prices) != 2 {
+		t.Fatalf("backup payload is incomplete: %+v", payload)
+	}
+	target := openTestStore(t)
+	if result, err := importBackup(t.Context(), target, payload); err != nil || result.Events != 3 {
+		t.Fatalf("backup cannot be restored: result=%+v err=%v", result, err)
+	}
+	if _, err := exportBackupJSON(t.Context(), source, 2); !errors.Is(err, errBackupLimitExceeded) {
+		t.Fatalf("oversized backup error=%v", err)
+	}
+}
+
+func TestStreamingBackupJSONEmptyCollections(t *testing.T) {
+	store := openTestStore(t)
+	raw, err := exportBackupJSON(t.Context(), store, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload backupPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Events == nil || payload.Prices == nil || len(payload.Events) != 0 || len(payload.Prices) != 0 {
+		t.Fatalf("empty backup collections are not restorable: %+v", payload)
+	}
+	if _, err := importBackup(t.Context(), store, payload); err != nil {
+		t.Fatalf("empty backup cannot be restored: %v", err)
 	}
 }
 

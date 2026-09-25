@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"net/url"
@@ -24,14 +25,18 @@ const (
 )
 
 type eventStore struct {
-	db       *sql.DB
-	enabled  bool
-	path     string
-	hashSalt string
-	mu       sync.RWMutex
-	last     time.Time
-	lastErr  string
-	pruneErr string
+	db             *sql.DB
+	memoryKeeper   *sql.Conn
+	enabled        bool
+	path           string
+	hashSalt       string
+	mu             sync.RWMutex
+	last           time.Time
+	lastErr        string
+	pruneErr       string
+	metricsMu      sync.Mutex
+	metrics        storageStatus
+	metricsAttempt time.Time
 
 	priceMu     sync.RWMutex
 	priceLoaded bool
@@ -59,6 +64,19 @@ func openEventStore(cfg runtimeConfig) (*eventStore, error) {
 	if err := store.initialize(); err != nil {
 		_ = db.Close()
 		return nil, err
+	}
+	if !cfg.StorageEnabled {
+		// Shared memory databases disappear when their last connection closes.
+		// Reserve a connection outside the working pool so discarding a broken
+		// writer connection cannot erase schema or previously committed events.
+		db.SetMaxOpenConns(sqliteMaxOpenConnections + 1)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		store.memoryKeeper, err = db.Conn(ctx)
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
 	}
 	return store, nil
 }
@@ -242,7 +260,15 @@ func (s *eventStore) writeBatch(events []usageEvent) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	tx, err := s.db.BeginTx(ctx, nil)
+	// Pin the connection so an uncertain COMMIT/ROLLBACK can be discarded
+	// rather than returning a possibly active transaction to the pool.
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		s.setError(err)
+		return err
+	}
+	defer conn.Close()
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		s.setError(err)
 		return err
@@ -254,10 +280,18 @@ func (s *eventStore) writeBatch(events []usageEvent) error {
 		}
 	}()
 	if err := writeEventsTx(ctx, tx, events); err != nil {
+		rollback = false
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+			err = &uncertainBatchWriteError{err: fmt.Errorf("%w (rollback: %v)", err, rollbackErr)}
+		}
 		s.setError(err)
 		return err
 	}
 	if err := tx.Commit(); err != nil {
+		rollback = false
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		err = &uncertainBatchWriteError{err: err}
 		s.setError(err)
 		return err
 	}
@@ -268,6 +302,13 @@ func (s *eventStore) writeBatch(events []usageEvent) error {
 	s.mu.Unlock()
 	return nil
 }
+
+type uncertainBatchWriteError struct{ err error }
+
+func (e *uncertainBatchWriteError) Error() string {
+	return "batch outcome uncertain; not retried: " + e.err.Error()
+}
+func (e *uncertainBatchWriteError) Unwrap() error { return e.err }
 
 func writeEventsTx(ctx context.Context, tx *sql.Tx, events []usageEvent) error {
 	eventStmt, err := tx.PrepareContext(ctx, insertEventSQL)
@@ -318,7 +359,12 @@ func (s *eventStore) prune(retentionDays int, now time.Time) (err error) {
 	if retentionDays <= 0 {
 		return nil
 	}
-	defer func() { s.setPruneError(err) }()
+	defer func() {
+		s.setPruneError(err)
+		if err == nil {
+			s.invalidateStorageMetrics()
+		}
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -367,22 +413,39 @@ func pruneEventsTx(ctx context.Context, tx *sql.Tx, retentionDays int, now time.
 }
 
 func (s *eventStore) status() storageStatus {
-	status := s.statusSnapshot()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = s.db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&status.JournalMode)
-	_ = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_events").Scan(&status.EventCount)
-	_ = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_minute_rollups").Scan(&status.RollupCount)
-	if s.enabled {
-		if info, err := os.Stat(s.path); err == nil {
-			status.DatabaseBytes = info.Size()
-		}
-	}
-	return status
+	return s.storageStatus(true)
 }
 
 func (s *eventStore) statusSnapshot() storageStatus {
-	status := storageStatus{Enabled: s.enabled, Path: s.path, JournalMode: "wal"}
+	return s.storageStatus(false)
+}
+
+func (s *eventStore) invalidateStorageMetrics() {
+	s.metricsMu.Lock()
+	s.metricsAttempt = time.Time{}
+	s.metricsMu.Unlock()
+}
+
+func (s *eventStore) storageStatus(force bool) storageStatus {
+	const metricsTTL = 5 * time.Second
+	s.metricsMu.Lock()
+	if force || s.metricsAttempt.IsZero() || time.Since(s.metricsAttempt) >= metricsTTL {
+		sample, err := s.collectStorageMetrics()
+		s.metricsAttempt = time.Now()
+		if err == nil {
+			s.metrics = sample
+		} else {
+			// Preserve a previous successful sample with explicit stale metadata.
+			s.metrics.MetricsStale = true
+			s.metrics.MetricsError = s.storageErrorMessage(err)
+		}
+	}
+	status := s.metrics
+	s.metricsMu.Unlock()
+	status.Enabled = s.enabled
+	if s.enabled {
+		status.Path = s.path
+	}
 	s.mu.RLock()
 	if !s.last.IsZero() {
 		status.LastWriteAt = s.last.Format(time.RFC3339)
@@ -393,6 +456,35 @@ func (s *eventStore) statusSnapshot() storageStatus {
 	}
 	s.mu.RUnlock()
 	return status
+}
+
+func (s *eventStore) collectStorageMetrics() (storageStatus, error) {
+	var status storageStatus
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := s.db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&status.JournalMode); err != nil {
+		return storageStatus{}, err
+	}
+	// One statement gives both counts from the same SQLite read snapshot.
+	if err := s.db.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM usage_events),
+		(SELECT COUNT(*) FROM usage_minute_rollups)`).Scan(&status.EventCount, &status.RollupCount); err != nil {
+		return storageStatus{}, err
+	}
+	if s.enabled {
+		for _, path := range []string{s.path, s.path + "-wal"} {
+			info, err := os.Stat(path)
+			if errors.Is(err, os.ErrNotExist) && path != s.path {
+				continue
+			}
+			if err != nil {
+				return storageStatus{}, err
+			}
+			status.DatabaseBytes += info.Size()
+		}
+	}
+	status.MetricsAvailable = true
+	status.SampledAt = time.Now().UTC().Format(time.RFC3339Nano)
+	return status, nil
 }
 
 func (s *eventStore) loadIntSetting(key string, fallback int) int {
@@ -438,6 +530,9 @@ func (s *eventStore) storageErrorMessage(err error) string {
 func (s *eventStore) close() error {
 	if s == nil || s.db == nil {
 		return nil
+	}
+	if s.memoryKeeper != nil {
+		_ = s.memoryKeeper.Close()
 	}
 	return s.db.Close()
 }

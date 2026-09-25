@@ -87,6 +87,7 @@ func managementRoutes() managementRegistration {
 			{Method: "GET", Path: "/plugins/usage-keeper/interfaces"},
 			{Method: "GET", Path: "/plugins/usage-keeper/upstream"},
 			{Method: "GET", Path: "/plugins/usage-keeper/events"},
+			{Method: "GET", Path: "/plugins/usage-keeper/events/dates"},
 			{Method: "GET", Path: "/plugins/usage-keeper/events/export"},
 			{Method: "GET", Path: "/plugins/usage-keeper/settings"},
 			{Method: "PUT", Path: "/plugins/usage-keeper/settings"},

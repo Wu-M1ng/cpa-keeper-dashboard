@@ -2,15 +2,80 @@ package main
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
+func TestUsageHandleKeepsRuntimeOpenThroughEnqueue(t *testing.T) {
+	shutdownRuntime()
+	cfg := defaultConfig()
+	cfg.StoragePath = filepath.Join(t.TempDir(), "usage.db")
+	t.Cleanup(shutdownRuntime)
+	if err := configureRuntime(cfg); err != nil {
+		t.Fatal(err)
+	}
+	previous := currentRuntime()
+	previous.queueMu.Lock()
+	queueLocked := true
+	defer func() {
+		if queueLocked {
+			previous.queueMu.Unlock()
+		}
+	}()
+
+	handled := make(chan []byte, 1)
+	go func() {
+		handled <- handleUsage([]byte(`{"provider":"codex","model":"queued-before-reconfigure"}`))
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if !runtimeMu.TryLock() {
+			break
+		}
+		runtimeMu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatal("usage handler released the runtime before enqueue completed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	reconfigured := make(chan error, 1)
+	go func() { reconfigured <- configureRuntime(cfg) }()
+	previous.queueMu.Unlock()
+	queueLocked = false
+	select {
+	case raw := <-handled:
+		var response envelope
+		if err := json.Unmarshal(raw, &response); err != nil || !response.OK {
+			t.Fatalf("usage response=%s err=%v", raw, err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("usage handler did not finish")
+	}
+	select {
+	case err := <-reconfigured:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("reconfiguration did not finish")
+	}
+	if previous.dropped.Load() != 0 {
+		t.Fatalf("in-flight usage was dropped during reconfiguration: %d", previous.dropped.Load())
+	}
+	var count int
+	if err := currentRuntime().store.db.QueryRow("SELECT COUNT(*) FROM usage_events").Scan(&count); err != nil || count != 1 {
+		t.Fatalf("event count after reconfiguration=%d err=%v", count, err)
+	}
+}
+
 func TestUsageHandleDecodesOfficialJSON(t *testing.T) {
 	runtime := &pluginRuntime{
 		config: runtimeConfig{APIKeyHashSalt: "salt"},
-		queue:  make(chan usageEvent, 1),
+		queue:  make(chan writerQueueItem, 1),
 	}
 	runtimeMu.Lock()
 	previous := activeRuntime
@@ -33,7 +98,8 @@ func TestUsageHandleDecodesOfficialJSON(t *testing.T) {
 	}
 
 	select {
-	case event := <-runtime.queue:
+	case item := <-runtime.queue:
+		event := item.event
 		if event.Provider != "codex" || event.Model != "gpt-5.6" || event.InputTokens != 100 || event.OutputTokens != 25 {
 			t.Fatalf("official usage fields were not decoded: %+v", event)
 		}
@@ -110,8 +176,13 @@ func TestCompactUsageRecordMapsOfficialFieldsAndMasksIdentifiers(t *testing.T) {
 	if strings.Contains(event.UpstreamLabel, "123456789") || strings.Contains(event.Source, "openai") {
 		t.Fatalf("account or source identity was not anonymized: %+v", event)
 	}
-	if event.Failure != record.Failure.Body {
-		t.Fatalf("failure text = %q, want unchanged bounded text", event.Failure)
+	for _, secret := range []string{"account@example.com", "plain-secret", "secret-token", "sk-live-123456789"} {
+		if strings.Contains(event.Failure, secret) {
+			t.Fatalf("failure text exposed %q: %q", secret, event.Failure)
+		}
+	}
+	if !strings.Contains(event.Failure, "rate limited") {
+		t.Fatalf("failure text lost its diagnostic message: %q", event.Failure)
 	}
 	if event.UpstreamKey == "" || event.UpstreamLabel == "" {
 		t.Fatalf("upstream identity missing: %+v", event)
@@ -139,7 +210,7 @@ func TestMaskProviderCredentialKeepsFirstThreeAndLastTwoCharacters(t *testing.T)
 func TestEnqueueDropsImmediatelyWhenQueueIsFull(t *testing.T) {
 	r := &pluginRuntime{
 		config: runtimeConfig{APIKeyHashSalt: "salt"},
-		queue:  make(chan usageEvent, 1),
+		queue:  make(chan writerQueueItem, 1),
 	}
 	record := usageRecord{Model: "gpt", Provider: "codex", RequestedAt: time.Now()}
 	if !r.enqueue(record) {
@@ -154,6 +225,37 @@ func TestEnqueueDropsImmediatelyWhenQueueIsFull(t *testing.T) {
 	}
 	if r.accepted.Load() != 1 || r.dropped.Load() != 1 {
 		t.Fatalf("unexpected counters accepted=%d dropped=%d", r.accepted.Load(), r.dropped.Load())
+	}
+}
+
+func TestConcurrentEnqueuePreservesRestoreBarrierSlot(t *testing.T) {
+	r := &pluginRuntime{
+		config: runtimeConfig{APIKeyHashSalt: "salt", QueueSize: 2},
+		queue:  make(chan writerQueueItem, 3),
+	}
+	record := usageRecord{Model: "gpt", Provider: "codex", RequestedAt: time.Now()}
+	var workers sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < 32; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			r.enqueue(record)
+		}()
+	}
+	close(start)
+	workers.Wait()
+	if got := len(r.queue); got != 2 {
+		t.Fatalf("queued events=%d, want 2 with one barrier slot reserved", got)
+	}
+	if got := r.queuedEvents.Load(); got != 2 {
+		t.Fatalf("admission counter=%d, want 2", got)
+	}
+	select {
+	case r.queue <- writerQueueItem{barrier: &writerBarrier{}}:
+	default:
+		t.Fatal("concurrent enqueue consumed the restore barrier slot")
 	}
 }
 
@@ -210,19 +312,19 @@ func TestPruneExpiredSerializesWithRetentionUpdates(t *testing.T) {
 	}
 }
 
-func TestSanitizeEndpointKeepsEndpointPathVisible(t *testing.T) {
+func TestSanitizeEndpointKeepsNonSensitivePathVisible(t *testing.T) {
 	input := "https://proxy.local/v1/account%40example.com/sk-live-123456789/chat?api_key=secret#fragment"
-	want := "https://proxy.local/v1/account@example.com/sk-live-123456789/chat"
+	want := "https://proxy.local/v1/acc***om/***/chat"
 	if got := sanitizeEndpoint(input); got != want {
 		t.Fatalf("sanitizeEndpoint() = %q, want %q", got, want)
 	}
 }
 
-func TestSanitizeFailureOnlyBoundsAndCleansControls(t *testing.T) {
+func TestSanitizeFailureRedactsBeforeBoundingAndCleaningControls(t *testing.T) {
 	input := "  account@example.com Bearer secret-token\n" + strings.Repeat("x", 600)
 	got := sanitizeFailure(input)
-	if strings.Contains(got, "\n") || !strings.Contains(got, "account@example.com") || !strings.Contains(got, "secret-token") {
-		t.Fatalf("failure text was unexpectedly redacted or retained controls: %q", got)
+	if strings.Contains(got, "\n") || strings.Contains(got, "account@example.com") || strings.Contains(got, "secret-token") {
+		t.Fatalf("failure text exposed an identifier or retained controls: %q", got)
 	}
 	if len(got) > 512 {
 		t.Fatalf("failure text length = %d, want at most 512", len(got))
@@ -249,7 +351,7 @@ func TestSanitizersKeepOversizedEventFieldsBounded(t *testing.T) {
 func BenchmarkEnqueue(b *testing.B) {
 	r := &pluginRuntime{
 		config: runtimeConfig{APIKeyHashSalt: "benchmark"},
-		queue:  make(chan usageEvent, b.N+1),
+		queue:  make(chan writerQueueItem, b.N+1),
 	}
 	record := usageRecord{Model: "gpt-5.6", Provider: "codex", APIKey: "client-key", RequestedAt: time.Now()}
 	b.ReportAllocs()

@@ -16,7 +16,7 @@ const (
 	pluginID             = "usage-keeper"
 )
 
-var pluginVersion = "1.6.4"
+var pluginVersion = "1.6.5"
 
 type envelope struct {
 	OK     bool            `json:"ok"`
@@ -394,35 +394,35 @@ func firstUsageInt64(values ...int64) int64 {
 }
 
 type usageEvent struct {
-	ID                  int64  `json:"id"`
-	TimestampMS         int64  `json:"timestamp_ms"`
-	Provider            string `json:"provider"`
-	ExecutorType        string `json:"executor_type,omitempty"`
-	Model               string `json:"model"`
-	Alias               string `json:"alias,omitempty"`
-	Endpoint            string `json:"endpoint,omitempty"`
-	APIKeyMask          string `json:"api_key"`
-	APIKeyHash          string `json:"api_key_hash"`
-	AuthID              string `json:"auth_id,omitempty"`
-	AuthIndex           string `json:"auth_index,omitempty"`
-	AuthType            string `json:"auth_type,omitempty"`
-	UpstreamKey         string `json:"upstream_key"`
-	UpstreamLabel       string `json:"upstream_label"`
-	Source              string `json:"source"`
-	ReasoningEffort     string `json:"reasoning_effort,omitempty"`
-	ServiceTier         string `json:"service_tier,omitempty"`
-	Generate            bool   `json:"generate"`
-	LatencyMS           int64  `json:"latency_ms"`
-	TTFTMS              int64  `json:"ttft_ms"`
-	Failed              bool   `json:"failed"`
-	StatusCode          int    `json:"status_code,omitempty"`
-	Failure             string `json:"failure,omitempty"`
-	InputTokens         int64  `json:"input_tokens"`
-	OutputTokens        int64  `json:"output_tokens"`
-	ReasoningTokens     int64  `json:"reasoning_tokens"`
-	CachedTokens        int64  `json:"cached_tokens"`
-	CacheReadTokens     int64  `json:"cache_read_tokens"`
-	CacheCreationTokens int64  `json:"cache_creation_tokens"`
+	ID                  int64   `json:"id"`
+	TimestampMS         int64   `json:"timestamp_ms"`
+	Provider            string  `json:"provider"`
+	ExecutorType        string  `json:"executor_type,omitempty"`
+	Model               string  `json:"model"`
+	Alias               string  `json:"alias,omitempty"`
+	Endpoint            string  `json:"endpoint,omitempty"`
+	APIKeyMask          string  `json:"api_key"`
+	APIKeyHash          string  `json:"api_key_hash"`
+	AuthID              string  `json:"auth_id,omitempty"`
+	AuthIndex           string  `json:"auth_index,omitempty"`
+	AuthType            string  `json:"auth_type,omitempty"`
+	UpstreamKey         string  `json:"upstream_key"`
+	UpstreamLabel       string  `json:"upstream_label"`
+	Source              string  `json:"source"`
+	ReasoningEffort     string  `json:"reasoning_effort,omitempty"`
+	ServiceTier         string  `json:"service_tier,omitempty"`
+	Generate            bool    `json:"generate"`
+	LatencyMS           int64   `json:"latency_ms"`
+	TTFTMS              int64   `json:"ttft_ms"`
+	Failed              bool    `json:"failed"`
+	StatusCode          int     `json:"status_code,omitempty"`
+	Failure             string  `json:"failure,omitempty"`
+	InputTokens         int64   `json:"input_tokens"`
+	OutputTokens        int64   `json:"output_tokens"`
+	ReasoningTokens     int64   `json:"reasoning_tokens"`
+	CachedTokens        int64   `json:"cached_tokens"`
+	CacheReadTokens     int64   `json:"cache_read_tokens"`
+	CacheCreationTokens int64   `json:"cache_creation_tokens"`
 	TotalTokens         int64   `json:"total_tokens"`
 	CostUSD             float64 `json:"cost_usd"`
 	InputCost           float64 `json:"input_cost,omitempty"`
@@ -438,28 +438,48 @@ type usageEvent struct {
 }
 
 type storageStatus struct {
-	Enabled       bool   `json:"enabled"`
-	Path          string `json:"path"`
-	JournalMode   string `json:"journal_mode"`
-	DatabaseBytes int64  `json:"database_bytes"`
-	EventCount    int64  `json:"event_count"`
-	RollupCount   int64  `json:"rollup_count"`
-	LastWriteAt   string `json:"last_write_at,omitempty"`
-	LastError     string `json:"last_error,omitempty"`
+	Enabled          bool   `json:"enabled"`
+	Path             string `json:"path"`
+	JournalMode      string `json:"journal_mode"`
+	DatabaseBytes    int64  `json:"database_bytes"`
+	EventCount       int64  `json:"event_count"`
+	RollupCount      int64  `json:"rollup_count"`
+	LastWriteAt      string `json:"last_write_at,omitempty"`
+	LastError        string `json:"last_error,omitempty"`
+	MetricsAvailable bool   `json:"metrics_available"`
+	MetricsStale     bool   `json:"metrics_stale"`
+	MetricsError     string `json:"metrics_error,omitempty"`
+	SampledAt        string `json:"sampled_at,omitempty"`
+}
+
+func (s storageStatus) MarshalJSON() ([]byte, error) {
+	type alias storageStatus
+	if s.MetricsAvailable {
+		return json.Marshal(alias(s))
+	}
+	// Unknown is different from a successful sample of an empty database.
+	return json.Marshal(struct {
+		alias
+		DatabaseBytes *int64 `json:"database_bytes"`
+		EventCount    *int64 `json:"event_count"`
+		RollupCount   *int64 `json:"rollup_count"`
+	}{alias: alias(s)})
 }
 
 type runtimeStatus struct {
-	Accepted      uint64        `json:"accepted"`
-	Dropped       uint64        `json:"dropped"`
-	Written       uint64        `json:"written"`
-	WriteFailures uint64        `json:"write_failures"`
-	QueueDepth    int           `json:"queue_depth"`
-	QueueCapacity int           `json:"queue_capacity"`
-	LastBatchSize int64         `json:"last_batch_size"`
-	LastBatchMS   float64       `json:"last_batch_ms"`
-	StartedAt     string        `json:"started_at"`
-	Storage       storageStatus `json:"storage"`
-	RetentionDays int           `json:"retention_days"`
-	BatchSize     int           `json:"batch_size"`
-	FlushInterval int           `json:"flush_interval_ms"`
+	Accepted       uint64        `json:"accepted"`
+	Dropped        uint64        `json:"dropped"`
+	Written        uint64        `json:"written"`
+	WriteFailures  uint64        `json:"write_failures"`
+	WriteDropped   uint64        `json:"write_dropped"`
+	WriteUncertain uint64        `json:"write_uncertain"`
+	QueueDepth     int           `json:"queue_depth"`
+	QueueCapacity  int           `json:"queue_capacity"`
+	LastBatchSize  int64         `json:"last_batch_size"`
+	LastBatchMS    float64       `json:"last_batch_ms"`
+	StartedAt      string        `json:"started_at"`
+	Storage        storageStatus `json:"storage"`
+	RetentionDays  int           `json:"retention_days"`
+	BatchSize      int           `json:"batch_size"`
+	FlushInterval  int           `json:"flush_interval_ms"`
 }
